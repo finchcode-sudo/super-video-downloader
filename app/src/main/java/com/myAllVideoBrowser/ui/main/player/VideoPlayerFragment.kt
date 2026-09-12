@@ -26,6 +26,7 @@ import androidx.media3.exoplayer.DefaultRenderersFactory
 import androidx.media3.exoplayer.DefaultRenderersFactory.EXTENSION_RENDERER_MODE_PREFER
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.RenderersFactory
+import androidx.media3.exoplayer.SeekParameters
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.PlayerView.SHOW_BUFFERING_ALWAYS
@@ -52,6 +53,14 @@ class VideoPlayerFragment : BaseFragment() {
         // width - drag from one edge to the other seeks ~90s.
         private const val SEEK_RANGE_MS = 90_000L
         private const val LONG_PRESS_SPEED = 3.0f
+
+        // Minimum gap between real seekTo() calls while dragging. Without
+        // this, onScroll (fired dozens of times/sec) issues a new precise
+        // seek on every pixel of movement, and each one has to decode
+        // forward from the last keyframe - on downloaded/remuxed files
+        // (large keyframe intervals) this floods the decoder and the video
+        // visibly stalls/stutters while audio keeps going.
+        private const val DRAG_SEEK_THROTTLE_MS = 120L
     }
 
     @Inject
@@ -75,6 +84,8 @@ class VideoPlayerFragment : BaseFragment() {
     private var isLongPressSpeedActive = false
     private var isDraggingSeek = false
     private var dragStartPositionMs = 0L
+    private var lastDragSeekAtMs = 0L
+    private var pendingDragTargetMs = 0L
     private var areControlsShown = true
     private lateinit var gestureDetector: GestureDetector
 
@@ -130,6 +141,11 @@ class VideoPlayerFragment : BaseFragment() {
             .setRenderersFactory(createRenderFactory())
             .setMediaSourceFactory(mediaFactory)
             .build()
+        // Seek to the nearest keyframe instead of decoding forward to the
+        // exact frame. Downloaded/remuxed files often have sparse keyframes,
+        // so exact seeking is slow and, combined with rapid seeks while
+        // dragging, causes visible stutter.
+        player.setSeekParameters(SeekParameters.CLOSEST_SYNC)
 
         dataBinding.apply {
             val currentBinding = this
@@ -357,7 +373,15 @@ class VideoPlayerFragment : BaseFragment() {
                     dataBinding.gestureIndicatorText.text = "$sign${diffSeconds}s"
                     dataBinding.gestureIndicatorText.visibility = View.VISIBLE
 
-                    player.seekTo(targetMs)
+                    // Always remember where the finger currently is, but only
+                    // actually issue a seek every DRAG_SEEK_THROTTLE_MS - see
+                    // constant comment for why unthrottled seeking stutters.
+                    pendingDragTargetMs = targetMs
+                    val now = System.currentTimeMillis()
+                    if (now - lastDragSeekAtMs >= DRAG_SEEK_THROTTLE_MS) {
+                        lastDragSeekAtMs = now
+                        player.seekTo(targetMs)
+                    }
                     return true
                 }
             }
@@ -378,6 +402,11 @@ class VideoPlayerFragment : BaseFragment() {
                 if (isLongPressSpeedActive) {
                     isLongPressSpeedActive = false
                     player.setPlaybackSpeed(normalSpeed)
+                }
+                if (isDraggingSeek) {
+                    // Land on the exact spot the finger was released at -
+                    // throttling above may have skipped the last position.
+                    player.seekTo(pendingDragTargetMs)
                 }
                 isDraggingSeek = false
                 dataBinding.gestureIndicatorText.visibility = View.GONE
