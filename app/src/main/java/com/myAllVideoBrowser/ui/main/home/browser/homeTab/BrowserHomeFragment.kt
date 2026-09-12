@@ -10,8 +10,10 @@ import android.view.ViewGroup
 import android.view.MotionEvent
 import android.view.inputmethod.EditorInfo
 import android.widget.EditText
+import androidx.core.content.ContextCompat
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
+import com.myAllVideoBrowser.R
 import com.myAllVideoBrowser.data.local.model.Suggestion
 import com.myAllVideoBrowser.data.local.room.entity.PageInfo
 import com.myAllVideoBrowser.databinding.FragmentBrowserHomeBinding
@@ -91,6 +93,7 @@ class BrowserHomeFragment : BaseWebTabFragment() {
 
             this.homeEtSearch.setAdapter(suggestionAdapter)
             this.homeEtSearch.addTextChangedListener(onInputHomeSearchChangeListener)
+            this.homeEtSearch.setOnTouchListener(clearIconTouchListener)
             this.homeEtSearch.imeOptions = EditorInfo.IME_ACTION_DONE
             this.homeEtSearch.setOnEditorActionListener { _, actionId, _ ->
                 if (actionId == EditorInfo.IME_ACTION_DONE) {
@@ -158,6 +161,7 @@ class BrowserHomeFragment : BaseWebTabFragment() {
         override fun afterTextChanged(s: Editable) {
             val input = s.toString()
             homeViewModel.searchTextInput.set(input)
+            updateClearIcon(input.isNotEmpty())
             if (!(input.startsWith("http://") || input.startsWith("https://"))) {
                 homeViewModel.showSuggestions()
             }
@@ -169,6 +173,47 @@ class BrowserHomeFragment : BaseWebTabFragment() {
 
         override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {
         }
+    }
+
+    /**
+     * Shows a Firefox-style clear ("x") icon at the end of the search field
+     * whenever it has text, hides it when empty.
+     */
+    private fun updateClearIcon(hasText: Boolean) {
+        val editText = binding.homeEtSearch
+        val startDrawable = editText.compoundDrawablesRelative[0]
+        val endDrawable = if (hasText) {
+            ContextCompat.getDrawable(requireContext(), R.drawable.close_24px)
+        } else null
+        editText.setCompoundDrawablesRelativeWithIntrinsicBounds(
+            startDrawable, null, endDrawable, null
+        )
+    }
+
+    /**
+     * Detects taps on the clear ("x") compound drawable and empties the
+     * field, since compound drawables aren't clickable on their own.
+     */
+    private val clearIconTouchListener = View.OnTouchListener { v, event ->
+        val editText = v as EditText
+        if (event.action == MotionEvent.ACTION_UP) {
+            val endDrawable = editText.compoundDrawablesRelative[2]
+            if (endDrawable != null) {
+                val isRtl = editText.layoutDirection == View.LAYOUT_DIRECTION_RTL
+                val touchTargetWidth = endDrawable.bounds.width() + editText.paddingEnd
+                val hitClearIcon = if (isRtl) {
+                    event.x <= touchTargetWidth
+                } else {
+                    event.x >= (editText.width - touchTargetWidth)
+                }
+                if (hitClearIcon) {
+                    editText.text.clear()
+                    v.performClick()
+                    return@OnTouchListener true
+                }
+            }
+        }
+        false
     }
 
     private val itemListener = object : TopPageAdapter.TopPagesListener {
