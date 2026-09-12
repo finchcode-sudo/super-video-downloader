@@ -312,6 +312,10 @@ class VideoPlayerFragment : BaseFragment() {
      * committed on release. Both live on gesture_overlay, which sits on top
      * of the PlayerView so its own tap-to-show-controls behaviour still
      * works via onSingleTapConfirmed forwarding.
+     *
+     * 注意：当 PlayerView 的控制器完全显示时，让触摸事件穿透到下层
+     * PlayerView，这样全屏/暂停/进度条等自带按钮才能正常响应点击；
+     * 否则 gesture_overlay 会拦截掉这些点击。
      */
     private fun setupGestures() {
         gestureDetector = GestureDetector(
@@ -372,6 +376,14 @@ class VideoPlayerFragment : BaseFragment() {
         )
 
         dataBinding.gestureOverlay.setOnTouchListener { v, event ->
+            // 控制器显示时，让触摸穿透到下层 PlayerView，
+            // 这样全屏/暂停/进度条等自带按钮才能收到点击。
+            if (dataBinding.videoView.isControllerFullyVisible &&
+                (event.action == MotionEvent.ACTION_DOWN || event.action == MotionEvent.ACTION_UP)
+            ) {
+                return@setOnTouchListener false
+            }
+
             gestureDetector.onTouchEvent(event)
 
             if (event.action == MotionEvent.ACTION_UP || event.action == MotionEvent.ACTION_CANCEL) {
@@ -388,4 +400,3 @@ class VideoPlayerFragment : BaseFragment() {
     }
 
 }
-
