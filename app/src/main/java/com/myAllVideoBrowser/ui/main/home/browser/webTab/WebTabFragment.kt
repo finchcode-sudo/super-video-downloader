@@ -728,6 +728,13 @@ class WebTabFragment : BaseWebTabFragment() {
         val isStateResumed = viewLifecycleOwner.lifecycle.currentState == Lifecycle.State.RESUMED
 
         if (isStateResumed && isBrowserRoute && isCurrentTabSelected && isVisible) {
+            // If the address bar is expanded/focused, the back gesture should
+            // just collapse it first - not immediately navigate the page,
+            // which would be surprising while the user is mid-edit.
+            if (tabViewModel.isTabInputFocused.get()) {
+                tabViewModel.changeTabFocus(false)
+                return
+            }
             webTab.getWebView()?.goBack()
         }
     }
