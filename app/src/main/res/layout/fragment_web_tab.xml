@@ -69,10 +69,20 @@
                             android:gravity="center"
                             android:orientation="horizontal"
                             android:paddingStart="4dp"
-                            android:visibility="@{viewModel.isTabInputFocused ? View.GONE : View.VISIBLE}"
                             app:layout_constraintBottom_toBottomOf="parent"
                             app:layout_constraintStart_toStartOf="parent"
                             app:layout_constraintTop_toTopOf="parent">
+
+                            <com.google.android.material.button.MaterialButton
+                                android:id="@+id/iv_collapse_search"
+                                style="@style/Widget.Material3.Button.IconButton"
+                                android:layout_width="40dp"
+                                android:layout_height="40dp"
+                                android:contentDescription="@string/accessibility_back"
+                                android:onClick="@{() -> viewModel.changeTabFocus(false)}"
+                                android:visibility="@{viewModel.isTabInputFocused ? View.VISIBLE : View.GONE}"
+                                app:icon="@drawable/arrow_back24px"
+                                app:iconTint="?attr/colorOnSurface" />
 
                             <com.google.android.material.button.MaterialButton
                                 android:id="@+id/iv_close_tab"
@@ -81,6 +91,7 @@
                                 android:layout_height="40dp"
                                 android:contentDescription="@string/accessibility_close"
                                 android:onClick="@{() -> browserMenuListener.onTabCloseClicked()}"
+                                android:visibility="@{viewModel.isTabInputFocused ? View.GONE : View.VISIBLE}"
                                 app:icon="@drawable/home_48px"
                                 app:iconTint="?attr/colorOnSurface" />
 
@@ -91,6 +102,7 @@
                                 android:layout_height="40dp"
                                 android:contentDescription="@string/accessibility_back"
                                 android:onClick="@{() -> browserMenuListener.onBrowserBackClicked()}"
+                                android:visibility="@{viewModel.isTabInputFocused ? View.GONE : View.VISIBLE}"
                                 app:icon="@drawable/arrow_back24px"
                                 app:iconTint="?attr/colorOnSurface" />
 
@@ -101,6 +113,7 @@
                                 android:layout_height="40dp"
                                 android:contentDescription="@string/accessibility_forward"
                                 android:onClick="@{() -> browserMenuListener.onBrowserForwardClicked()}"
+                                android:visibility="@{viewModel.isTabInputFocused ? View.GONE : View.VISIBLE}"
                                 app:icon="@drawable/arrow_forward24px"
                                 app:iconTint="?attr/colorOnSurface" />
                         </LinearLayout>
