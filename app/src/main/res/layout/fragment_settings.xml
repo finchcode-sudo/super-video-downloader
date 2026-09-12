@@ -9,6 +9,8 @@
 
         <import type="com.myAllVideoBrowser.R" />
 
+        <import type="com.myAllVideoBrowser.ui.main.settings.SearchEngine" />
+
         <variable
             name="viewModel"
             type="com.myAllVideoBrowser.ui.main.settings.SettingsViewModel" />
@@ -331,6 +333,69 @@
                                 app:layout_constraintTop_toTopOf="parent" />
 
                         </androidx.constraintlayout.widget.ConstraintLayout>
+
+                        <com.google.android.material.divider.MaterialDivider
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            app:dividerInsetStart="16dp" />
+
+                        <com.google.android.material.textview.MaterialTextView
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:paddingHorizontal="16dp"
+                            android:paddingTop="16dp"
+                            android:paddingBottom="4dp"
+                            android:text="@string/search_engine_title"
+                            android:textAppearance="?attr/textAppearanceTitleMedium" />
+
+                        <RadioGroup
+                            android:id="@+id/searchEngineRadioGroup"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:paddingHorizontal="16dp"
+                            android:paddingBottom="8dp">
+
+                            <com.google.android.material.radiobutton.MaterialRadioButton
+                                android:layout_width="match_parent"
+                                android:layout_height="wrap_content"
+                                android:checked="@{viewModel.selectedSearchEngine == SearchEngine.DUCKDUCKGO}"
+                                android:onClick="@{() -> viewModel.setSearchEngine(SearchEngine.DUCKDUCKGO)}"
+                                android:text="DuckDuckGo"
+                                android:textAppearance="?attr/textAppearanceBodyLarge" />
+
+                            <com.google.android.material.radiobutton.MaterialRadioButton
+                                android:layout_width="match_parent"
+                                android:layout_height="wrap_content"
+                                android:checked="@{viewModel.selectedSearchEngine == SearchEngine.GOOGLE}"
+                                android:onClick="@{() -> viewModel.setSearchEngine(SearchEngine.GOOGLE)}"
+                                android:text="Google"
+                                android:textAppearance="?attr/textAppearanceBodyLarge" />
+
+                            <com.google.android.material.radiobutton.MaterialRadioButton
+                                android:layout_width="match_parent"
+                                android:layout_height="wrap_content"
+                                android:checked="@{viewModel.selectedSearchEngine == SearchEngine.BING}"
+                                android:onClick="@{() -> viewModel.setSearchEngine(SearchEngine.BING)}"
+                                android:text="Bing"
+                                android:textAppearance="?attr/textAppearanceBodyLarge" />
+
+                            <com.google.android.material.radiobutton.MaterialRadioButton
+                                android:layout_width="match_parent"
+                                android:layout_height="wrap_content"
+                                android:checked="@{viewModel.selectedSearchEngine == SearchEngine.BAIDU}"
+                                android:onClick="@{() -> viewModel.setSearchEngine(SearchEngine.BAIDU)}"
+                                android:text="@string/search_engine_baidu"
+                                android:textAppearance="?attr/textAppearanceBodyLarge" />
+
+                            <com.google.android.material.radiobutton.MaterialRadioButton
+                                android:layout_width="match_parent"
+                                android:layout_height="wrap_content"
+                                android:checked="@{viewModel.selectedSearchEngine == SearchEngine.YANDEX}"
+                                android:onClick="@{() -> viewModel.setSearchEngine(SearchEngine.YANDEX)}"
+                                android:text="Yandex"
+                                android:textAppearance="?attr/textAppearanceBodyLarge" />
+
+                        </RadioGroup>
 
                         <com.google.android.material.divider.MaterialDivider
                             android:layout_width="match_parent"
