@@ -5,6 +5,8 @@ import androidx.databinding.ObservableField
 import androidx.lifecycle.viewModelScope
 import com.myAllVideoBrowser.data.local.model.Suggestion
 import com.myAllVideoBrowser.ui.main.base.BaseViewModel
+import com.myAllVideoBrowser.ui.main.settings.SearchEngine
+import com.myAllVideoBrowser.ui.main.settings.SettingsViewModel
 import com.myAllVideoBrowser.util.SuggestionsUtils
 import com.myAllVideoBrowser.util.proxy_utils.OkHttpProxyClient
 import com.myAllVideoBrowser.util.scheduler.BaseSchedulers
@@ -23,6 +25,8 @@ class BrowserHomeViewModel @Inject constructor(
     private val baseSchedulers: BaseSchedulers,
 ) :
     BaseViewModel() {
+    var settingsModel: SettingsViewModel? = null
+
     val isSearchInputFocused = ObservableBoolean(false)
     val searchTextInput = ObservableField("")
     val listSuggestions: ObservableField<MutableList<Suggestion>> = ObservableField(mutableListOf())
@@ -67,7 +71,9 @@ class BrowserHomeViewModel @Inject constructor(
         return Flowable.combineLatest(
             homePublishSubject.debounce(300, TimeUnit.MILLISECONDS)
                 .toFlowable(BackpressureStrategy.LATEST), SuggestionsUtils.getSuggestions(
-                okHttpClient.getProxyOkHttpClient(), searchTextInput.get() ?: ""
+                okHttpClient.getProxyOkHttpClient(),
+                searchTextInput.get() ?: "",
+                settingsModel?.selectedSearchEngine?.get() ?: SearchEngine.DUCKDUCKGO
             ).toFlowable(BackpressureStrategy.LATEST)
         ) { _, suggestions ->
             val listSuggestions = mutableListOf<Suggestion>()
