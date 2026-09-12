@@ -16,7 +16,6 @@ import android.widget.Toast
 import androidx.appcompat.app.AlertDialog
 import androidx.lifecycle.ViewModelProvider
 import androidx.media3.common.MediaItem
-import androidx.media3.common.MimeTypes
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
@@ -27,7 +26,6 @@ import androidx.media3.exoplayer.DefaultRenderersFactory
 import androidx.media3.exoplayer.DefaultRenderersFactory.EXTENSION_RENDERER_MODE_PREFER
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.RenderersFactory
-import androidx.media3.exoplayer.mediacodec.MediaCodecSelector
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.PlayerView.SHOW_BUFFERING_ALWAYS
@@ -236,16 +234,6 @@ class VideoPlayerFragment : BaseFragment() {
     private fun createRenderFactory(): RenderersFactory {
         return DefaultRenderersFactory(requireContext().applicationContext)
             .setExtensionRendererMode(EXTENSION_RENDERER_MODE_PREFER)
-            .setMediaCodecSelector { mimeType, requiresSecureDecoder, requiresTunnelingDecoder ->
-                var decoderInfos =
-                    MediaCodecSelector.DEFAULT
-                        .getDecoderInfos(mimeType, requiresSecureDecoder, requiresTunnelingDecoder)
-                if (MimeTypes.VIDEO_H264 == mimeType) {
-                    decoderInfos = ArrayList(decoderInfos)
-                    decoderInfos.reverse()
-                }
-                decoderInfos
-            }
     }
 
     private fun createMediaFactory(
