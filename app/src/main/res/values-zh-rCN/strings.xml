@@ -3,7 +3,7 @@
     <string name="title_progress">进度</string>
     <string name="title_settings">设置</string>
     <string name="dialog_video_title">找到的视频:</string>
-    <string name="browser_search_hint">在DuckDuckGo中搜索或输入网址</string>
+    <string name="browser_search_hint">搜索或输入网址</string>
     <string name="dialog_preview_video">预览视频</string>
     <string name="dialog_download_video">下载视频</string>
     <string name="dialog_download_cancel">取消</string>
