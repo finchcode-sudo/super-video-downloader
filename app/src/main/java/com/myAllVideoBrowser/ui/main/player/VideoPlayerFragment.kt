@@ -3,10 +3,13 @@ package com.myAllVideoBrowser.ui.main.player
 import android.app.Activity
 import android.content.Context
 import android.content.ContextWrapper
+import android.content.pm.ActivityInfo
 import android.net.Uri
 import android.os.Bundle
+import android.view.GestureDetector
 import android.view.KeyEvent
 import android.view.LayoutInflater
+import android.view.MotionEvent
 import android.view.View
 import android.view.ViewGroup
 import android.widget.Toast
@@ -36,6 +39,7 @@ import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.jsonObject
 import javax.inject.Inject
 import androidx.core.net.toUri
+import kotlin.math.abs
 
 
 @UnstableApi
@@ -45,6 +49,11 @@ class VideoPlayerFragment : BaseFragment() {
         const val VIDEO_URL = "video_url"
         const val VIDEO_HEADERS = "video_headers"
         const val VIDEO_NAME = "video_name"
+
+        // How many ms the drag-seek gesture covers across the full screen
+        // width - drag from one edge to the other seeks ~90s.
+        private const val SEEK_RANGE_MS = 90_000L
+        private const val LONG_PRESS_SPEED = 3.0f
     }
 
     @Inject
@@ -61,7 +70,15 @@ class VideoPlayerFragment : BaseFragment() {
     private lateinit var videoPlayerViewModel: VideoPlayerViewModel
 
     private lateinit var dataBinding: FragmentPlayerBinding
-    private var isStretched = false
+    private var isFullscreen = false
+
+    // ---- gesture state ----
+    private var normalSpeed = 1.0f
+    private var isLongPressSpeedActive = false
+    private var isDraggingSeek = false
+    private var dragStartPositionMs = 0L
+    private var areControlsShown = true
+    private lateinit var gestureDetector: GestureDetector
 
     override fun onCreateView(
         inflater: LayoutInflater,
@@ -124,7 +141,7 @@ class VideoPlayerFragment : BaseFragment() {
             currentBinding.videoView.player = player
             currentBinding.videoView.setShowBuffering(SHOW_BUFFERING_ALWAYS)
             currentBinding.videoView.setFullscreenButtonClickListener {
-                toggleStretchMode()
+                toggleFullscreen()
             }
 
             player.addListener(object : Player.Listener {
@@ -164,6 +181,8 @@ class VideoPlayerFragment : BaseFragment() {
                     handleClose()
                 }
             }
+
+            setupGestures()
         }
 
         return dataBinding.root
@@ -191,14 +210,21 @@ class VideoPlayerFragment : BaseFragment() {
     }
 
     override fun onDestroyView() {
-        getActivity(context)?.let { appUtil.showSystemUI(it.window, dataBinding.root) }
+        getActivity(context)?.let {
+            appUtil.showSystemUI(it.window, dataBinding.root)
+            it.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
+        }
         videoPlayerViewModel.stop()
         player.release()
         super.onDestroyView()
     }
 
     private val navigationIconClickListener = View.OnClickListener {
-        handleClose()
+        if (isFullscreen) {
+            toggleFullscreen()
+        } else {
+            handleClose()
+        }
     }
 
     private fun handlePlayerEvents() {
@@ -241,7 +267,11 @@ class VideoPlayerFragment : BaseFragment() {
         this.view?.requestFocus()
         this.view?.setOnKeyListener { _, keyCode, _ ->
             if (keyCode == KeyEvent.KEYCODE_BACK) {
-                handleClose()
+                if (isFullscreen) {
+                    toggleFullscreen()
+                } else {
+                    handleClose()
+                }
                 true
             } else false
         }
@@ -252,15 +282,110 @@ class VideoPlayerFragment : BaseFragment() {
         activity?.finish()
     }
 
-    private fun toggleStretchMode() {
-        isStretched = !isStretched
+    /**
+     * Real fullscreen: rotates to landscape, fills the entire screen with
+     * the video (zoom-fit so no letterboxing bars), hides the toolbar and
+     * system bars. This overrides the app-wide portrait lock while this
+     * screen is open - VideoPlayerActivity isn't pinned to a fixed
+     * orientation in the manifest, so this is safe.
+     */
+    private fun toggleFullscreen() {
+        isFullscreen = !isFullscreen
+        val activity = getActivity(context) ?: return
 
-        if (isStretched) {
-            dataBinding.videoView.resizeMode = AspectRatioFrameLayout.RESIZE_MODE_ZOOM
+        if (isFullscreen) {
+            activity.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
+            dataBinding.videoView.resizeMode = AspectRatioFrameLayout.RESIZE_MODE_FIT
             dataBinding.toolbar.visibility = View.GONE
+            appUtil.hideSystemUI(activity.window, dataBinding.root)
         } else {
+            activity.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
             dataBinding.videoView.resizeMode = AspectRatioFrameLayout.RESIZE_MODE_FIT
             dataBinding.toolbar.visibility = View.VISIBLE
+            appUtil.hideSystemUI(activity.window, dataBinding.root)
         }
     }
+
+    /**
+     * Long-press anywhere = temporary 3x speed (released on lift).
+     * Horizontal drag anywhere = seek relative to drag distance, shown live,
+     * committed on release. Both live on gesture_overlay, which sits on top
+     * of the PlayerView so its own tap-to-show-controls behaviour still
+     * works via onSingleTapConfirmed forwarding.
+     */
+    private fun setupGestures() {
+        gestureDetector = GestureDetector(
+            requireContext(),
+            object : GestureDetector.SimpleOnGestureListener() {
+                override fun onDown(e: MotionEvent): Boolean = true
+
+                override fun onSingleTapConfirmed(e: MotionEvent): Boolean {
+                    areControlsShown = !areControlsShown
+                    if (areControlsShown) {
+                        dataBinding.videoView.showController()
+                    } else {
+                        dataBinding.videoView.hideController()
+                    }
+                    return true
+                }
+
+                override fun onLongPress(e: MotionEvent) {
+                    if (isDraggingSeek) return
+                    isLongPressSpeedActive = true
+                    normalSpeed = player.playbackParameters.speed
+                    player.setPlaybackSpeed(LONG_PRESS_SPEED)
+                    dataBinding.gestureIndicatorText.text = "${LONG_PRESS_SPEED}x speed"
+                    dataBinding.gestureIndicatorText.visibility = View.VISIBLE
+                }
+
+                override fun onScroll(
+                    e1: MotionEvent?,
+                    e2: MotionEvent,
+                    distanceX: Float,
+                    distanceY: Float
+                ): Boolean {
+                    if (isLongPressSpeedActive) return false
+                    // Only treat clearly-horizontal drags as seeking, so
+                    // this doesn't fight with vertical swipes elsewhere.
+                    if (!isDraggingSeek && abs(distanceX) < abs(distanceY)) return false
+
+                    if (!isDraggingSeek) {
+                        isDraggingSeek = true
+                        dragStartPositionMs = player.currentPosition
+                    }
+
+                    val width = dataBinding.gestureOverlay.width.takeIf { it > 0 } ?: return true
+                    val totalDx = (e2.x - (e1?.x ?: e2.x))
+                    val offsetMs = (totalDx / width) * SEEK_RANGE_MS
+                    val targetMs = (dragStartPositionMs + offsetMs.toLong())
+                        .coerceIn(0, player.duration.coerceAtLeast(0))
+
+                    val diffSeconds = (targetMs - dragStartPositionMs) / 1000
+                    val sign = if (diffSeconds >= 0) "+" else ""
+                    dataBinding.gestureIndicatorText.text = "$sign${diffSeconds}s"
+                    dataBinding.gestureIndicatorText.visibility = View.VISIBLE
+
+                    player.seekTo(targetMs)
+                    return true
+                }
+            }
+        )
+
+        dataBinding.gestureOverlay.setOnTouchListener { v, event ->
+            gestureDetector.onTouchEvent(event)
+
+            if (event.action == MotionEvent.ACTION_UP || event.action == MotionEvent.ACTION_CANCEL) {
+                if (isLongPressSpeedActive) {
+                    isLongPressSpeedActive = false
+                    player.setPlaybackSpeed(normalSpeed)
+                }
+                isDraggingSeek = false
+                dataBinding.gestureIndicatorText.visibility = View.GONE
+                v.performClick()
+            }
+            true
+        }
+    }
+
 }
+
