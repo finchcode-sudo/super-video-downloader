@@ -22,6 +22,34 @@ enum class StorageType {
     SD, HIDDEN, HIDDEN_SD
 }
 
+enum class SearchEngine(val displayName: String, val searchUrl: String, val suggestUrl: String?) {
+    DUCKDUCKGO(
+        "DuckDuckGo",
+        "https://duckduckgo.com/?t=ffab&q=%s",
+        "https://duckduckgo.com/ac/?q=%s&kl=wt-wt"
+    ),
+    GOOGLE(
+        "Google",
+        "https://www.google.com/search?q=%s",
+        "https://suggestqueries.google.com/complete/search?client=firefox&q=%s"
+    ),
+    BING(
+        "Bing",
+        "https://www.bing.com/search?q=%s",
+        "https://api.bing.com/osjson.aspx?query=%s"
+    ),
+    BAIDU(
+        "百度",
+        "https://www.baidu.com/s?wd=%s",
+        null
+    ),
+    YANDEX(
+        "Yandex",
+        "https://yandex.com/search/?text=%s",
+        "https://suggest.yandex.com/suggest-ff.cgi?part=%s"
+    )
+}
+
 //@OpenForTesting
 class SettingsViewModel @Inject constructor(
     private val sharedPrefHelper: SharedPrefHelper,
@@ -32,6 +60,7 @@ class SettingsViewModel @Inject constructor(
     val m3u8ThreadsCount = ObservableInt(4)
     val videoDetectionTreshold = ObservableInt(4 * 1024 * 1024)
     val storageType = ObservableField(StorageType.SD)
+    val selectedSearchEngine = ObservableField(SearchEngine.DUCKDUCKGO)
 
     val clearCookiesEvent = SingleLiveEvent<Void?>()
     val openVideoFolderEvent = SingleLiveEvent<Void?>()
@@ -81,6 +110,11 @@ class SettingsViewModel @Inject constructor(
             val askRedirection = sharedPrefHelper.getIsAskRedirection()
             val adBlockOn = sharedPrefHelper.getIsAdBlockOn()
             val downloadSubtitles = sharedPrefHelper.getIsDownloadSubtitles()
+            val searchEngine = try {
+                SearchEngine.valueOf(sharedPrefHelper.getSelectedSearchEngineId())
+            } catch (e: Throwable) {
+                SearchEngine.DUCKDUCKGO
+            }
 
             val isExternal = sharedPrefHelper.getIsExternalUse()
             val isAppDir = sharedPrefHelper.getIsAppDirUse()
@@ -118,6 +152,7 @@ class SettingsViewModel @Inject constructor(
                 storageType.set(sType)
                 isAdBlockOn.set(adBlockOn)
                 isDownloadSubtitles.set(downloadSubtitles)
+                selectedSearchEngine.set(searchEngine)
             }
         }
     }
@@ -253,6 +288,13 @@ class SettingsViewModel @Inject constructor(
         isCheckEveryRequestOnVideo.set(isCheck)
         viewModelScope.launch(Dispatchers.IO) {
             sharedPrefHelper.saveIsCheck(isCheck)
+        }
+    }
+
+    fun setSearchEngine(engine: SearchEngine) {
+        selectedSearchEngine.set(engine)
+        viewModelScope.launch(Dispatchers.IO) {
+            sharedPrefHelper.saveSelectedSearchEngineId(engine.name)
         }
     }
 
