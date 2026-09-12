@@ -80,7 +80,7 @@
                                 android:layout_height="40dp"
                                 android:contentDescription="@string/accessibility_close"
                                 android:onClick="@{() -> browserMenuListener.onTabCloseClicked()}"
-                                app:icon="@drawable/tab_close_24px"
+                                app:icon="@drawable/home_48px"
                                 app:iconTint="?attr/colorOnSurface" />
 
                             <com.google.android.material.button.MaterialButton
