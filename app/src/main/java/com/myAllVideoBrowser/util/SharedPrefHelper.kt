@@ -5,6 +5,7 @@ import android.content.SharedPreferences
 import com.google.gson.Gson
 import com.myAllVideoBrowser.data.local.GeneratedProxyCreds
 import com.myAllVideoBrowser.data.local.model.Proxy
+import com.myAllVideoBrowser.ui.main.settings.SearchEngine
 import javax.inject.Inject
 import javax.inject.Singleton
 import androidx.core.content.edit
@@ -54,6 +55,8 @@ class SharedPrefHelper @Inject constructor(
         private const val MAX_SIMULTANEOUS_DOWNLOADS = "MAX_SIMULTANEOUS_DOWNLOADS"
         private const val IS_ADBLOCK_ON = "IS_ADBLOCK_ON"
         private const val IS_DOWNLOAD_SUBTITLES = "IS_DOWNLOAD_SUBTITLES"
+
+        private const val SELECTED_SEARCH_ENGINE_ID = "SELECTED_SEARCH_ENGINE_ID"
 
         // ---- mpv playback settings (VideoPlayerFragment / CustomMPVView) ----
         private const val MPV_PROFILE = "MPV_PROFILE"
@@ -582,5 +585,18 @@ class SharedPrefHelper @Inject constructor(
 
     fun setMpvHdrToneMappingEnabled(enabled: Boolean) {
         sharedPreferences.edit { putBoolean(MPV_HDR_TONE_MAPPING, enabled) }
+    }
+
+    // ---- search engine ----
+
+    fun getSelectedSearchEngineId(): String {
+        return sharedPreferences.getString(SELECTED_SEARCH_ENGINE_ID, null)
+            ?: SearchEngine.DUCKDUCKGO.name
+    }
+
+    fun saveSelectedSearchEngineId(id: String) {
+        sharedPreferences.edit {
+            putString(SELECTED_SEARCH_ENGINE_ID, id)
+        }
     }
 }
