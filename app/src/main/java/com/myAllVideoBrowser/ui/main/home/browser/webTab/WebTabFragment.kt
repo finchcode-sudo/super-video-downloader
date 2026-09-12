@@ -158,6 +158,7 @@ class WebTabFragment : BaseWebTabFragment() {
 
             etSearch.setAdapter(suggestionAdapter)
             etSearch.addTextChangedListener(onInputTabChangeListener)
+            ivClearSearch.setOnClickListener { etSearch.text?.clear() }
             this.etSearch.imeOptions = EditorInfo.IME_ACTION_DONE
             this.etSearch.setOnEditorActionListener { _, actionId, _ ->
                 if (actionId == EditorInfo.IME_ACTION_DONE) {
@@ -481,6 +482,7 @@ class WebTabFragment : BaseWebTabFragment() {
         override fun afterTextChanged(s: Editable) {
             val input = s.toString()
 
+            updateClearButtonVisibility(input.isNotEmpty())
             tabViewModel.showTabSuggestions()
             tabViewModel.tabPublishSubject.onNext(input)
         }
@@ -490,6 +492,16 @@ class WebTabFragment : BaseWebTabFragment() {
 
         override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {
         }
+    }
+
+    /**
+     * Firefox-style: the "x" only makes sense while the address bar is
+     * focused/expanded (otherwise it would show on top of the page's
+     * favicon/refresh area) and only when there's something to clear.
+     */
+    private fun updateClearButtonVisibility(hasText: Boolean = dataBinding.etSearch.text?.isNotEmpty() == true) {
+        val isFocused = tabViewModel.isTabInputFocused.get()
+        dataBinding.ivClearSearch.visibility = if (isFocused && hasText) View.VISIBLE else View.GONE
     }
 
     private val suggestionListener = object : SuggestionTabListener {
@@ -513,11 +525,13 @@ class WebTabFragment : BaseWebTabFragment() {
                     }
                     tabViewModel.isTabInputFocused.set(true)
                     appUtil.showSoftKeyboard(dataBinding.etSearch)
+                    updateClearButtonVisibility()
                 } else {
                     tabViewModel.isTabInputFocused.set(false)
                     appUtil.hideSoftKeyboard(
                         dataBinding.etSearch
                     )
+                    updateClearButtonVisibility()
                 }
             }
         }
