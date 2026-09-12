@@ -159,6 +159,8 @@
     <string name="stop_and_save_message">press stop and save, to stop downloading and save downloaded at any time...!</string>
 
     <string name="adblock_lists_title">AdBlocker Lists</string>
+    <string name="search_engine_title">Search Engine</string>
+    <string name="search_engine_baidu">Baidu</string>
     <string name="player_settings_title">Player Settings</string>
     <string name="subtitle_search_title">Search Subtitles</string>
     <string name="subtitle_search_hint">Movie or show title</string>
