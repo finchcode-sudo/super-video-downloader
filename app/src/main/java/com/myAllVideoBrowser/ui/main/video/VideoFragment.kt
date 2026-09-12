@@ -31,6 +31,7 @@ import com.myAllVideoBrowser.ui.main.base.BaseFragment
 import com.myAllVideoBrowser.ui.main.home.MainActivity
 import com.myAllVideoBrowser.ui.main.player.VideoPlayerActivity
 import com.myAllVideoBrowser.ui.main.player.VideoPlayerFragment
+import com.myAllVideoBrowser.ui.main.player.SubtitleSearchFragment
 import com.myAllVideoBrowser.ui.main.progress.WrapContentLinearLayoutManager
 import com.myAllVideoBrowser.ui.main.video.VideoViewModel.Companion.FILE_EXIST_ERROR_CODE
 import com.myAllVideoBrowser.util.AppUtil
@@ -348,6 +349,23 @@ class VideoFragment : BaseFragment() {
                             videoViewModel.isLoading.set(false)
                         }
                     }
+                    true
+                }
+
+                R.id.item_search_subtitles -> {
+                    val bundle = Bundle().apply {
+                        putString(
+                            SubtitleSearchFragment.ARG_VIDEO_NAME,
+                            File(video.name).nameWithoutExtension
+                        )
+                    }
+                    parentFragmentManager.beginTransaction()
+                        .replace(
+                            R.id.fragment_container_view,
+                            SubtitleSearchFragment.newInstance(bundle)
+                        )
+                        .addToBackStack(null)
+                        .commit()
                     true
                 }
 

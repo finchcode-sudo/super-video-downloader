@@ -42,7 +42,7 @@ class YoutubeDlDownloaderWorker(appContext: Context, workerParams: WorkerParamet
         const val IS_FINISHED_DOWNLOAD_ACTION_ERROR_KEY = "IS_FINISHED_DOWNLOAD_ACTION_ERROR_KEY"
         const val DOWNLOAD_FILENAME_KEY = "download_filename"
         const val IS_FINISHED_DOWNLOAD_ACTION_KEY = "action"
-        private const val UPDATE_INTERVAL = 2000
+        private const val UPDATE_INTERVAL = 500
     }
 
     private lateinit var tmpFile: File
@@ -414,7 +414,7 @@ class YoutubeDlDownloaderWorker(appContext: Context, workerParams: WorkerParamet
         request.addOption("--no-warnings")
         request.addOption("--no-playlist")
         request.addOption("--newline")
-        request.addOption("--progress-delta", "2")
+        request.addOption("--progress-delta", "0.5")
 
         request.addOption("--progress")
 

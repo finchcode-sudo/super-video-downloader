@@ -137,6 +137,17 @@ android {
         versionCode = 454
         versionName = "0.8.25.9"
 
+        val localSubtitleProps = Properties()
+        val localSubtitlePropsFile = rootProject.file("local.properties")
+        if (localSubtitlePropsFile.exists()) {
+            localSubtitlePropsFile.inputStream().use { localSubtitleProps.load(it) }
+        }
+        buildConfigField(
+            "String",
+            "WYZIE_API_KEY",
+            "\"${localSubtitleProps.getProperty("wyzie.apiKey", "")}\""
+        )
+
         if (isSingleAbiRequested) {
             splits {
                 abi {
@@ -342,6 +353,8 @@ dependencies {
     implementation(libs.media3Datasource)
     implementation(libs.media3Common)
     implementation(libs.media3DatasourceOkhttp)
+
+    // mpv-based player (replaces ExoPlayer for the video preview screen)
 
     // Image Loading
     implementation(libs.glideRuntime)

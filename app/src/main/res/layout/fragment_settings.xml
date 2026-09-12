@@ -337,6 +337,8 @@
                             android:layout_height="wrap_content"
                             app:dividerInsetStart="16dp" />
 
+
+
                         <LinearLayout
                             android:id="@+id/ads_treshold"
                             android:layout_width="match_parent"

@@ -54,6 +54,21 @@ class SharedPrefHelper @Inject constructor(
         private const val MAX_SIMULTANEOUS_DOWNLOADS = "MAX_SIMULTANEOUS_DOWNLOADS"
         private const val IS_ADBLOCK_ON = "IS_ADBLOCK_ON"
         private const val IS_DOWNLOAD_SUBTITLES = "IS_DOWNLOAD_SUBTITLES"
+
+        // ---- mpv playback settings (VideoPlayerFragment / CustomMPVView) ----
+        private const val MPV_PROFILE = "MPV_PROFILE"
+        private const val MPV_GPU_NEXT = "MPV_GPU_NEXT"
+        private const val MPV_USE_VULKAN = "MPV_USE_VULKAN"
+        private const val MPV_HWDEC_ENABLED = "MPV_HWDEC_ENABLED"
+        private const val MPV_PRECISE_SEEKING = "MPV_PRECISE_SEEKING"
+        private const val MPV_VOLUME_MAX = "MPV_VOLUME_MAX"
+        private const val MPV_REMEMBER_SPEED = "MPV_REMEMBER_SPEED"
+        private const val MPV_LAST_SPEED = "MPV_LAST_SPEED"
+        private const val MPV_SUB_AUTO_LOAD = "MPV_SUB_AUTO_LOAD"
+        private const val MPV_SUBTITLE_FONT_SIZE = "MPV_SUBTITLE_FONT_SIZE"
+        private const val MPV_SUB_ASS_OVERRIDE = "MPV_SUB_ASS_OVERRIDE"
+        private const val MPV_CACHE_SECS = "MPV_CACHE_SECS"
+        private const val MPV_HDR_TONE_MAPPING = "MPV_HDR_TONE_MAPPING"
     }
 
     private val gson = Gson()
@@ -457,5 +472,115 @@ class SharedPrefHelper @Inject constructor(
         setGeneratedCreds(newCreds)
         saveCredsTimestamp(System.currentTimeMillis())
         return newCreds
+    }
+
+    // ==================== mpv playback settings ====================
+
+    /** "fast" or "high-quality" - controls mpv's built-in --profile preset. */
+    fun getMpvProfile(): String {
+        return sharedPreferences.getString(MPV_PROFILE, "fast") ?: "fast"
+    }
+
+    fun setMpvProfile(profile: String) {
+        sharedPreferences.edit { putString(MPV_PROFILE, profile) }
+    }
+
+    fun getMpvGpuNext(): Boolean {
+        return sharedPreferences.getBoolean(MPV_GPU_NEXT, false)
+    }
+
+    fun setMpvGpuNext(enabled: Boolean) {
+        sharedPreferences.edit { putBoolean(MPV_GPU_NEXT, enabled) }
+    }
+
+    /** Only meaningful when getMpvGpuNext() is true. */
+    fun getMpvUseVulkan(): Boolean {
+        return sharedPreferences.getBoolean(MPV_USE_VULKAN, false)
+    }
+
+    fun setMpvUseVulkan(enabled: Boolean) {
+        sharedPreferences.edit { putBoolean(MPV_USE_VULKAN, enabled) }
+    }
+
+    fun getMpvHwdecEnabled(): Boolean {
+        return sharedPreferences.getBoolean(MPV_HWDEC_ENABLED, true)
+    }
+
+    fun setMpvHwdecEnabled(enabled: Boolean) {
+        sharedPreferences.edit { putBoolean(MPV_HWDEC_ENABLED, enabled) }
+    }
+
+    fun isMpvPreciseSeekingEnabled(): Boolean {
+        return sharedPreferences.getBoolean(MPV_PRECISE_SEEKING, false)
+    }
+
+    fun setMpvPreciseSeekingEnabled(enabled: Boolean) {
+        sharedPreferences.edit { putBoolean(MPV_PRECISE_SEEKING, enabled) }
+    }
+
+    /** 100-300, percent. */
+    fun getMpvVolumeMax(): Int {
+        return sharedPreferences.getInt(MPV_VOLUME_MAX, 100)
+    }
+
+    fun setMpvVolumeMax(percent: Int) {
+        sharedPreferences.edit { putInt(MPV_VOLUME_MAX, percent.coerceIn(100, 300)) }
+    }
+
+    fun isMpvRememberSpeedEnabled(): Boolean {
+        return sharedPreferences.getBoolean(MPV_REMEMBER_SPEED, false)
+    }
+
+    fun setMpvRememberSpeedEnabled(enabled: Boolean) {
+        sharedPreferences.edit { putBoolean(MPV_REMEMBER_SPEED, enabled) }
+    }
+
+    fun getMpvLastSpeed(): Float {
+        return sharedPreferences.getFloat(MPV_LAST_SPEED, 1.0f)
+    }
+
+    fun setMpvLastSpeed(speed: Float) {
+        sharedPreferences.edit { putFloat(MPV_LAST_SPEED, speed) }
+    }
+
+    fun isMpvSubAutoLoadEnabled(): Boolean {
+        return sharedPreferences.getBoolean(MPV_SUB_AUTO_LOAD, true)
+    }
+
+    fun setMpvSubAutoLoadEnabled(enabled: Boolean) {
+        sharedPreferences.edit { putBoolean(MPV_SUB_AUTO_LOAD, enabled) }
+    }
+
+    fun getMpvSubtitleFontSize(): Int {
+        return sharedPreferences.getInt(MPV_SUBTITLE_FONT_SIZE, 55)
+    }
+
+    fun setMpvSubtitleFontSize(size: Int) {
+        sharedPreferences.edit { putInt(MPV_SUBTITLE_FONT_SIZE, size) }
+    }
+
+    /** true = force video's own ASS styling to be overridden by our font-size/etc. */
+    fun isMpvSubAssOverrideEnabled(): Boolean {
+        return sharedPreferences.getBoolean(MPV_SUB_ASS_OVERRIDE, false)
+    }
+
+    fun setMpvSubAssOverrideEnabled(enabled: Boolean) {
+        sharedPreferences.edit { putBoolean(MPV_SUB_ASS_OVERRIDE, enabled) }
+    }
+
+    fun getMpvCacheSecs(): Int {
+        return sharedPreferences.getInt(MPV_CACHE_SECS, 60)
+    }
+
+    fun setMpvCacheSecs(secs: Int) {
+        sharedPreferences.edit { putInt(MPV_CACHE_SECS, secs) }
+    }
+
+    fun isMpvHdrToneMappingEnabled(): Boolean {
+        return sharedPreferences.getBoolean(MPV_HDR_TONE_MAPPING, true)
+    }
+
+    fun setMpvHdrToneMappingEnabled(enabled: Boolean) {
+        sharedPreferences.edit { putBoolean(MPV_HDR_TONE_MAPPING, enabled) }
     }
 }

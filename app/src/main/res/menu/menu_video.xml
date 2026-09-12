@@ -39,4 +39,10 @@
         android:title="@string/video_move_downloads"
         app:showAsAction="ifRoom|collapseActionView" />
 
+    <item
+        android:id="@+id/item_search_subtitles"
+        android:icon="@drawable/edit_24px"
+        android:title="@string/subtitle_search_title"
+        app:showAsAction="ifRoom|collapseActionView" />
+
 </menu>

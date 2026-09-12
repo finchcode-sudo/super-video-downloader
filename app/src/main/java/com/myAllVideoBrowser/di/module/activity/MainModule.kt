@@ -76,6 +76,10 @@ abstract class MainModule {
     @ContributesAndroidInjector
     abstract fun bindAdblockSettingsFragment(): AdBlockSettingsFragment
 
+    @FragmentScoped
+    @ContributesAndroidInjector
+    abstract fun bindSubtitleSearchFragment(): com.myAllVideoBrowser.ui.main.player.SubtitleSearchFragment
+
     @ActivityScoped
     @Binds
     abstract fun bindMainActivity(mainActivity: MainActivity): Activity

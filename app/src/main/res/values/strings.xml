@@ -159,6 +159,14 @@
     <string name="stop_and_save_message">press stop and save, to stop downloading and save downloaded at any time...!</string>
 
     <string name="adblock_lists_title">AdBlocker Lists</string>
+    <string name="player_settings_title">Player Settings</string>
+    <string name="subtitle_search_title">Search Subtitles</string>
+    <string name="subtitle_search_hint">Movie or show title</string>
+    <string name="subtitle_search_button">Search</string>
+    <string name="subtitle_download_button">Download</string>
+    <string name="subtitle_no_results">No subtitles found</string>
+    <string name="subtitle_downloaded_toast">Subtitle downloaded: %1$s</string>
+    <string name="subtitle_download_failed_toast">Subtitle download failed: %1$s</string>
     <string name="add_adblock_list">Add AdBlock List</string>
     <string name="list_name">List Name</string>
     <string name="url">URL</string>
