@@ -64,18 +64,6 @@ abstract class BaseWebTabFragment : BaseFragment() {
         }
     }
 
-    private val autoDarkModeCallback = object : Observable.OnPropertyChangedCallback() {
-        override fun onPropertyChanged(sender: Observable?, propertyId: Int) {
-            if (!isAdded) {
-                return
-            }
-            lifecycleScope.launch(Dispatchers.Main) {
-                popupMenu?.menu?.findItem(R.id.is_dark)?.isEnabled =
-                    !mainActivity.settingsViewModel.isAutoDarkMode.get()
-            }
-        }
-    }
-
     private val desktopModeCallback = object : Observable.OnPropertyChangedCallback() {
         override fun onPropertyChanged(sender: Observable?, propertyId: Int) {
             if (!isAdded) {
@@ -119,9 +107,6 @@ abstract class BaseWebTabFragment : BaseFragment() {
         popupMenu = null
 
         mainActivity.settingsViewModel.isDarkMode.removeOnPropertyChangedCallback(darkModeCallback)
-        mainActivity.settingsViewModel.isAutoDarkMode.removeOnPropertyChangedCallback(
-            autoDarkModeCallback
-        )
         mainActivity.settingsViewModel.isDesktopMode.removeOnPropertyChangedCallback(
             desktopModeCallback
         )
@@ -153,14 +138,10 @@ abstract class BaseWebTabFragment : BaseFragment() {
 
             val isDarkModeItem = menu.findItem(R.id.is_dark)
             isDarkModeItem.isChecked = mainActivity.settingsViewModel.isDarkMode.get()
-            isDarkModeItem.isEnabled = !mainActivity.settingsViewModel.isAutoDarkMode.get()
 
             popupMenu!!.setForceShowIcon(true)
 
             mainActivity.settingsViewModel.isDarkMode.addOnPropertyChangedCallback(darkModeCallback)
-            mainActivity.settingsViewModel.isAutoDarkMode.addOnPropertyChangedCallback(
-                autoDarkModeCallback
-            )
             mainActivity.settingsViewModel.isDesktopMode.addOnPropertyChangedCallback(
                 desktopModeCallback
             )
