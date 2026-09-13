@@ -227,6 +227,12 @@ class WebTabFragment : BaseWebTabFragment() {
             name ?: Uri.parse(url).host.toString(),
             favicon
         )
+
+        Toast.makeText(
+            requireContext(),
+            getString(R.string.bookmark_saved_toast),
+            Toast.LENGTH_SHORT
+        ).show()
     }
 
     override fun setIsDesktop(isDesktop: Boolean) {
