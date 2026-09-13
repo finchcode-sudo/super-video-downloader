@@ -112,21 +112,6 @@
                             app:dividerInsetStart="56dp" />
 
                         <com.google.android.material.materialswitch.MaterialSwitch
-                            android:id="@+id/is_auto_theme_check_box"
-                            android:layout_width="match_parent"
-                            android:layout_height="64dp"
-                            android:checked="@{viewModel.isAutoDarkMode}"
-                            android:onCheckedChanged="@{(_, isChecked) -> viewModel.setIsAutoTheme(isChecked)}"
-                            android:paddingHorizontal="16dp"
-                            android:text="@string/is_auto_dark"
-                            android:textAppearance="@style/TextAppearance.Material3.BodyLarge" />
-
-                        <com.google.android.material.divider.MaterialDivider
-                            android:layout_width="match_parent"
-                            android:layout_height="wrap_content"
-                            app:dividerInsetStart="16dp" />
-
-                        <com.google.android.material.materialswitch.MaterialSwitch
                             android:id="@+id/lock_orientation_check_box"
                             android:layout_width="match_parent"
                             android:layout_height="64dp"
