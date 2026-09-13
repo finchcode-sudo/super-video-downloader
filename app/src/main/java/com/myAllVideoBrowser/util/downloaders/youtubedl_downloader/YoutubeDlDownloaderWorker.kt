@@ -443,23 +443,7 @@ class YoutubeDlDownloaderWorker(appContext: Context, workerParams: WorkerParamet
             request.addOption("--audio-format", "mp3")
         } else {
             val videoOnly = vFormat.vcodec != "none" && vFormat.acodec == "none"
-
-            // Twitter/X's HLS manifests frequently mislabel formats as having
-            // no audio (acodec: none) even though the actual .ts segments
-            // are muxed with audio - the page's own player has sound, but
-            // ours doesn't. Forcing "+bestaudio" here is actively harmful in
-            // that case: since X never exposes a real separate audio-only
-            // format, yt-dlp's merge step ends up explicitly mapping "video
-            // only" from this stream and drops the audio that's physically
-            // there. So for this family of hosts, trust the raw stream
-            // instead of the (wrong) codec metadata and download the format
-            // as-is rather than forcing a video+bestaudio merge.
-            val originUrl = inputData.getString(GenericDownloader.Constants.ORIGIN_KEY)
-            val isTwitterHost = originUrl?.toUri()?.host?.let { host ->
-                host.endsWith("x.com") || host.endsWith("twitter.com") || host.endsWith("twimg.com")
-            } == true
-
-            if (videoOnly && !isTwitterHost) {
+            if (videoOnly) {
                 request.addOption("-f", "${vFormat.formatId}+bestaudio")
             } else {
                 request.addOption("-f", "${vFormat.formatId}")
