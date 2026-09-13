@@ -130,8 +130,13 @@ class SettingsFragment : BaseFragment() {
 
         settingsViewModel.start()
 
-        val coreCount = Runtime.getRuntime().availableProcessors()
-        val maxThreads = coreCount.coerceIn(1, ABSOLUTE_MAX_THREADS).toFloat()
+        // Segment/chunk downloads are network I/O, not CPU work, so capping
+        // the slider to the device's core count was needlessly conservative
+        // on lower-core-count phones (e.g. a 4-core device could never go
+        // above 4 threads). Always offer the full range up to
+        // ABSOLUTE_MAX_THREADS now that the OkHttp client's per-host
+        // connection limit has been raised to actually support it.
+        val maxThreads = ABSOLUTE_MAX_THREADS.toFloat()
 
         dataBinding.seekBarRegular.valueTo = maxThreads
         dataBinding.seekBarM3u8.valueTo = maxThreads
