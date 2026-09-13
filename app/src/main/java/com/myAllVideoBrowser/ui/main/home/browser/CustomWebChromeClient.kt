@@ -37,19 +37,18 @@ class CustomWebChromeClient(
         if (!isUserGesture || view == null || resultMsg == null) {
             return false
         }
+
+        // NOTE: window.open() popups triggered from JS (e.g. Google Identity
+        // Services / "Sign in with Apple" buttons) are NOT <a href> anchor
+        // clicks, so view.hitTestResult will not be SRC_ANCHOR_TYPE and won't
+        // carry a target URL. We can't know the destination URL yet at this
+        // point anyway - it gets loaded into the child WebView asynchronously
+        // after we hand the transport back. So we no longer gate popup
+        // creation on hitTestResult; we just create the child WebView and let
+        // it load whatever URL the page navigates it to.
         val hitTestResult = view.hitTestResult
-        val url = hitTestResult.extra
-
-        // Check if the click was on a valid link URL.
-        if (hitTestResult.type != WebView.HitTestResult.SRC_ANCHOR_TYPE || url.isNullOrBlank()) {
-            return false
-        }
-        AppLogger.d("ON_CREATE_WINDOW: URL from HitTestResult: $url")
-
-        if (!url.startsWith("http")) {
-            AppLogger.d("ON_CREATE_WINDOW: Blocking ad or non-http scheme: $url")
-            return false // Blocked
-        }
+        val hitUrl = hitTestResult.extra
+        AppLogger.d("ON_CREATE_WINDOW: hitTestResult url (may be null for JS-triggered popups): $hitUrl")
 
         try {
             val transport = resultMsg.obj as WebView.WebViewTransport
@@ -60,10 +59,17 @@ class CustomWebChromeClient(
                 WebTab(
                     webview = newWebView,
                     resultMsg = resultMsg,
-                    url = url,
+                    url = hitUrl ?: "",
                     title = "Loading...",
                     icon = null
                 )
+
+            // Required: hands the transport carrying newWebView back to the
+            // WebView framework. Without this call the popup window request
+            // never completes and the child WebView never receives the
+            // navigation, so it stays blank forever (this was the main
+            // reason Google/Apple sign-in popups did nothing when clicked).
+            resultMsg.sendToTarget()
 
             return true
         } catch (e: Exception) {
@@ -71,6 +77,19 @@ class CustomWebChromeClient(
             Toast.makeText(view.context, "WebView provider not available.", Toast.LENGTH_SHORT).show()
             return false
         }
+    }
+
+    override fun onCloseWindow(window: WebView?) {
+        // Sign-in popups (Google/Apple) call window.close() via JS once the
+        // OAuth flow finishes (after posting the result back to the opener
+        // via postMessage/web_message). Without handling this, the popup tab
+        // would stay open and empty after a successful login.
+        if (window == null) {
+            super.onCloseWindow(window)
+            return
+        }
+        val pageTab = pageTabProvider.getPageTab(tabViewModel.thisTabIndex.get())
+        tabViewModel.closePageEvent.value = pageTab
     }
 
     override fun onReceivedIcon(view: WebView?, icon: Bitmap?) {
