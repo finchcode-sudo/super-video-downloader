@@ -54,7 +54,7 @@ class ProgressFragment : BaseFragment() {
         ) {
             val currentSize = settingsViewModel.queueSize.get()
             this@ProgressFragment.dataBinding.simsCountSlider.value =
-                currentSize.coerceIn(1, Runtime.getRuntime().availableProcessors()).toFloat()
+                currentSize.coerceIn(1, SettingsViewModel.MAX_SIMULTANEOUS_DOWNLOADS).toFloat()
         }
     }
 
@@ -75,8 +75,7 @@ class ProgressFragment : BaseFragment() {
             this.rvProgress.layoutManager = managerL
             this.rvProgress.adapter = progressAdapter
 
-            val coreCount = Runtime.getRuntime().availableProcessors()
-            this.simsCountSlider.valueTo = coreCount.toFloat()
+            this.simsCountSlider.valueTo = SettingsViewModel.MAX_SIMULTANEOUS_DOWNLOADS.toFloat()
             this.simsCountSlider.value = settingsViewModel?.queueSize?.get()?.toFloat() ?: 1f
             this.simsCountSlider.addOnChangeListener(simsThreadsListener)
             val simsText =
