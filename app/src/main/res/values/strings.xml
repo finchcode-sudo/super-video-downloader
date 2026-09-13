@@ -105,6 +105,7 @@
     <string name="check_if_in_list">Only check web-sites urls if in supported list</string>
     <string name="bookmark">Bookmark</string>
     <string name="bookmarks_list">Bookmarks</string>
+    <string name="bookmark_saved_toast">Saved to bookmarks</string>
     <string name="is_auto_dark">Auto Theme Mode</string>
     <string name="check_every_request_on_audio">Check every request on audio</string>
     <string name="go">GO</string>
