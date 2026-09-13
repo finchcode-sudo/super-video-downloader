@@ -55,6 +55,16 @@ class SettingsViewModel @Inject constructor(
     private val sharedPrefHelper: SharedPrefHelper,
 ) :
     BaseViewModel() {
+
+    companion object {
+        // How many videos can download at once. Kept separate from, and
+        // deliberately lower than, the per-download thread count cap
+        // (ABSOLUTE_MAX_THREADS = 16 in SettingsFragment) since the two
+        // stack multiplicatively: N simultaneous downloads x M threads each
+        // = N*M concurrent connections.
+        const val MAX_SIMULTANEOUS_DOWNLOADS = 16
+    }
+
     val isAskRedirection = ObservableBoolean(false)
     val regularThreadsCount = ObservableInt(1)
     val m3u8ThreadsCount = ObservableInt(4)
@@ -374,8 +384,13 @@ class SettingsViewModel @Inject constructor(
 
     private var simThreadsJob: Job? = null
     fun setSimulationsCount(count: Int) {
-        val coreCount = Runtime.getRuntime().availableProcessors()
-        val simDownloadsCount = count.coerceIn(1, coreCount)
+        // Each queued download can itself spin up to
+        // ABSOLUTE_MAX_THREADS (16) segment-fetch threads (see
+        // SettingsFragment), so this cap is intentionally kept modest -
+        // stacking many simultaneous downloads on top of many per-download
+        // threads multiplies total concurrent connections fast and makes
+        // 502/throttling from source servers more likely.
+        val simDownloadsCount = count.coerceIn(1, MAX_SIMULTANEOUS_DOWNLOADS)
 
         queueSize.set(simDownloadsCount)
 
