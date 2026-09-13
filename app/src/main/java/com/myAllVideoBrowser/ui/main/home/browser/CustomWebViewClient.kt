@@ -273,7 +273,7 @@ class CustomWebViewClient(
             val currentHost = currentUrl?.toUri()?.host
             val newHost = url.url.host
 
-            if (settingsModel.isAskRedirection.get() && currentHost != null && newHost != null && currentHost != newHost) {
+            if (settingsModel.isAskRedirection.get() && url.isRedirect && currentHost != null && newHost != null && currentHost != newHost) {
                 showRedirectionDialog(view, newUrl, newHost)
                 return true
             }
