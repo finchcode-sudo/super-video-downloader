@@ -172,26 +172,10 @@ class SharedPrefHelper @Inject constructor(
     }
 
     fun isDarkMode(): Boolean {
-        val isNightMode = appUtil.getSystemDefaultThemeIsDark(context)
-
-        if (isAutoTheme()) {
-            return isNightMode
-        }
-
         return sharedPreferences.getBoolean(
             IS_DARK_MODE,
             true
         )
-    }
-
-    fun isAutoTheme(): Boolean {
-        return sharedPreferences.getBoolean(IS_AUTO_THEME, false)
-    }
-
-    fun setIsAutoTheme(isAuto: Boolean) {
-        sharedPreferences.edit {
-            putBoolean(IS_AUTO_THEME, isAuto)
-        }
     }
 
     fun setIsDarkMode(isDarkMode: Boolean) {
