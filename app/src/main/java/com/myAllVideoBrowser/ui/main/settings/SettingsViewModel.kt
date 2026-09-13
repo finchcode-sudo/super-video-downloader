@@ -77,7 +77,6 @@ class SettingsViewModel @Inject constructor(
     val openAdBlockSettingsEvent = SingleLiveEvent<Unit?>()
     val isDesktopMode = ObservableBoolean(false)
     val isDarkMode = ObservableBoolean(false)
-    val isAutoDarkMode = ObservableBoolean(true)
     val isLockPortrait = ObservableBoolean(false)
     val isCheckIfEveryRequestOnM3u8 = ObservableBoolean(true)
     val isCheckOnAudio = ObservableBoolean(true)
@@ -110,7 +109,6 @@ class SettingsViewModel @Inject constructor(
             val showVideoAction = sharedPrefHelper.isShowActionButton()
             val checkEveryVideo = sharedPrefHelper.isCheckEveryRequestOnVideo()
             val findVideoByUrl = sharedPrefHelper.isFindVideoByUrl()
-            val autoDarkMode = sharedPrefHelper.isAutoTheme()
             val isDark = sharedPrefHelper.isDarkMode()
             val regularThreads = sharedPrefHelper.getRegularDownloaderThreadCount()
             val m3u8Threads = sharedPrefHelper.getM3u8DownloaderThreadCount()
@@ -150,7 +148,6 @@ class SettingsViewModel @Inject constructor(
                 isShowVideoActionButton.set(showVideoAction)
                 isCheckEveryRequestOnVideo.set(checkEveryVideo)
                 isFindVideoByUrl.set(findVideoByUrl)
-                isAutoDarkMode.set(autoDarkMode)
                 isDarkMode.set(isDark)
                 setDarkMode(isDark)
                 regularThreadsCount.set(regularThreads)
@@ -264,18 +261,6 @@ class SettingsViewModel @Inject constructor(
         isCheckOnAudio.set(isCheck)
         viewModelScope.launch(Dispatchers.IO) {
             sharedPrefHelper.saveIsCheckOnAudio(isCheck)
-        }
-    }
-
-    fun setIsAutoTheme(isChecked: Boolean) {
-        isAutoDarkMode.set(isChecked)
-        viewModelScope.launch(Dispatchers.IO) {
-            sharedPrefHelper.setIsAutoTheme(isChecked)
-
-            val isDark = sharedPrefHelper.isDarkMode()
-            withContext(Dispatchers.Main) {
-                setIsDarkMode(isDark)
-            }
         }
     }
 
