@@ -59,7 +59,7 @@
                     android:contentDescription="@string/queue_downloads_size"
                     android:stepSize="1"
                     android:valueFrom="1"
-                    android:valueTo="8" />
+                    android:valueTo="16" />
             </LinearLayout>
 
 
