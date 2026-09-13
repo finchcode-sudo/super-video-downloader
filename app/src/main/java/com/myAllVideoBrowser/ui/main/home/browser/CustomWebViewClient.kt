@@ -331,11 +331,10 @@ class CustomWebViewClient(
     }
 
     private fun isClearTextError(error: WebResourceError): Boolean {
-        val isClearTextErrorCode = Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
-            error.errorCode == WebViewClient.ERROR_CLEARTEXT_NOT_PERMITTED
-        val isClearTextDescription =
-            error.description?.contains("CLEARTEXT_NOT_PERMITTED", ignoreCase = true) == true
-        return isClearTextErrorCode || isClearTextDescription
+        // WebViewClient doesn't expose a public ERROR_CLEARTEXT_NOT_PERMITTED
+        // constant, so match on the description WebView actually reports
+        // (net::ERR_CLEARTEXT_NOT_PERMITTED) instead of a numeric error code.
+        return error.description?.contains("CLEARTEXT_NOT_PERMITTED", ignoreCase = true) == true
     }
 
     override fun onRenderProcessGone(
