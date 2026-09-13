@@ -64,13 +64,14 @@ class CustomWebChromeClient(
                     icon = null
                 )
 
-            // Required: hands the transport carrying newWebView back to the
-            // WebView framework. Without this call the popup window request
-            // never completes and the child WebView never receives the
-            // navigation, so it stays blank forever (this was the main
-            // reason Google/Apple sign-in popups did nothing when clicked).
-            resultMsg.sendToTarget()
-
+            // NOTE: do NOT call resultMsg.sendToTarget() here. WebTabFragment
+            // already calls webTab.getMessage()?.sendToTarget() once the new
+            // tab's Fragment/WebView is actually created and attached (see
+            // WebTabFragment.onCreateView). Calling it a second time here
+            // sends the same Message instance twice, which throws
+            // "IllegalStateException: This message is already in use" and
+            // crashes the app as soon as a popup (Google/Apple sign-in) tries
+            // to open.
             return true
         } catch (e: Exception) {
             AppLogger.e("Failed to create new WebView window: ${e.message}")
