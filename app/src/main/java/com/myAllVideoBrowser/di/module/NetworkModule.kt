@@ -17,6 +17,8 @@ import com.myAllVideoBrowser.util.proxy_utils.CustomProxyController
 import com.myAllVideoBrowser.util.proxy_utils.OkHttpProxyClient
 import dagger.Module
 import dagger.Provides
+import okhttp3.ConnectionPool
+import okhttp3.Dispatcher
 import okhttp3.OkHttpClient
 import retrofit2.Retrofit
 import retrofit2.adapter.rxjava3.RxJava3CallAdapterFactory
@@ -29,6 +31,15 @@ class NetworkModule {
 
     companion object {
         private const val DATA_URL = "https://some-url.com/youtube-dl/"
+
+        // OkHttp's own defaults (maxRequests=64, maxRequestsPerHost=5) quietly
+        // throttle concurrent segment downloads to the same CDN host, no
+        // matter how high the user sets the thread-count slider in Settings
+        // (up to 16 - see SettingsFragment.ABSOLUTE_MAX_THREADS). Raise the
+        // per-host cap so the configured thread count can actually be used.
+        private const val MAX_REQUESTS_PER_HOST = 32
+        private const val MAX_REQUESTS_TOTAL = 64
+        private const val MAX_IDLE_CONNECTIONS = 32
     }
 
     @Singleton
@@ -37,12 +48,19 @@ class NetworkModule {
         cookieJar: PersistentCookieJar,
         @ApplicationContext context: Context
     ): OkHttpClient {
+        val dispatcher = Dispatcher().apply {
+            maxRequests = MAX_REQUESTS_TOTAL
+            maxRequestsPerHost = MAX_REQUESTS_PER_HOST
+        }
+
         return OkHttpClient.Builder()
             .cookieJar(cookieJar)
             .addInterceptor(ProxyRetryInterceptor(context))
             .connectTimeout(15, TimeUnit.SECONDS)
             .readTimeout(15, TimeUnit.SECONDS)
             .writeTimeout(15, TimeUnit.SECONDS)
+            .dispatcher(dispatcher)
+            .connectionPool(ConnectionPool(MAX_IDLE_CONNECTIONS, 5, TimeUnit.MINUTES))
             .build()
     }
 
