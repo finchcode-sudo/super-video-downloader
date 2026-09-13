@@ -4,6 +4,7 @@ import android.graphics.Bitmap
 import android.os.Build
 import android.webkit.HttpAuthHandler
 import android.webkit.RenderProcessGoneDetail
+import android.webkit.WebResourceError
 import android.webkit.WebResourceRequest
 import android.webkit.WebResourceResponse
 import android.webkit.WebView
@@ -81,6 +82,12 @@ class CustomWebViewClient(
     private var lastRegularCheckUrl = ""
     private val regularJobsStorage: MutableMap<String, List<Disposable>> = mutableMapOf()
     private var approvedUrl: String? = null
+
+    // Some sites hyperlink to plain "http://" even though the same host also
+    // serves "https://". The system WebView refuses cleartext (http) traffic
+    // by default (net::ERR_CLEARTEXT_NOT_PERMITTED) - rather than showing an
+    // error page, silently retry once with "https://" before giving up.
+    private val cleartextUpgradedUrls: MutableSet<String> = mutableSetOf()
 
     companion object {
         fun emptyResponse(): WebResourceResponse {
@@ -301,6 +308,34 @@ class CustomWebViewClient(
     override fun onPageFinished(view: WebView, url: String) {
         super.onPageFinished(view, url)
         tabViewModel.finishPage(url)
+    }
+
+    override fun onReceivedError(
+        view: WebView,
+        request: WebResourceRequest,
+        error: WebResourceError
+    ) {
+        val requestUrl = request.url.toString()
+
+        if (request.isForMainFrame &&
+            request.url.scheme == "http" &&
+            isClearTextError(error) &&
+            cleartextUpgradedUrls.add(requestUrl)
+        ) {
+            AppLogger.d("CLEARTEXT blocked, retrying over https: $requestUrl")
+            view.loadUrl("https://" + requestUrl.removePrefix("http://"))
+            return
+        }
+
+        super.onReceivedError(view, request, error)
+    }
+
+    private fun isClearTextError(error: WebResourceError): Boolean {
+        val isClearTextErrorCode = Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+            error.errorCode == WebViewClient.ERROR_CLEARTEXT_NOT_PERMITTED
+        val isClearTextDescription =
+            error.description?.contains("CLEARTEXT_NOT_PERMITTED", ignoreCase = true) == true
+        return isClearTextErrorCode || isClearTextDescription
     }
 
     override fun onRenderProcessGone(
