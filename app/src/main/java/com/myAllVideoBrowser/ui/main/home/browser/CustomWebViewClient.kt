@@ -1,152 +1,383 @@
 package com.myAllVideoBrowser.ui.main.home.browser
 
-import android.content.pm.ActivityInfo
 import android.graphics.Bitmap
-import android.os.Message
-import android.view.View
-import android.view.WindowManager
-import android.webkit.WebChromeClient
+import android.os.Build
+import android.webkit.HttpAuthHandler
+import android.webkit.RenderProcessGoneDetail
+import android.webkit.WebResourceError
+import android.webkit.WebResourceRequest
+import android.webkit.WebResourceResponse
 import android.webkit.WebView
-import android.widget.Toast
+import android.webkit.WebViewClient
+import androidx.lifecycle.viewModelScope
+import com.myAllVideoBrowser.data.local.room.entity.HistoryItem
+import com.myAllVideoBrowser.ui.main.history.HistoryViewModel
+import com.myAllVideoBrowser.ui.main.settings.SettingsViewModel
+import com.myAllVideoBrowser.util.FaviconUtils
+import com.myAllVideoBrowser.util.proxy_utils.CustomProxyController
+import com.myAllVideoBrowser.util.proxy_utils.OkHttpProxyClient
+import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import com.myAllVideoBrowser.R
-import com.myAllVideoBrowser.databinding.FragmentWebTabBinding
-import com.myAllVideoBrowser.ui.main.home.MainActivity
+import com.myAllVideoBrowser.ui.main.home.browser.detectedVideos.IVideoDetector
 import com.myAllVideoBrowser.ui.main.home.browser.webTab.WebTab
 import com.myAllVideoBrowser.ui.main.home.browser.webTab.WebTabViewModel
-import com.myAllVideoBrowser.ui.main.settings.SettingsViewModel
-import com.myAllVideoBrowser.util.AppLogger
-import com.myAllVideoBrowser.util.AppUtil
+import com.myAllVideoBrowser.util.CookieUtils
 import com.myAllVideoBrowser.util.SingleLiveEvent
+import com.myAllVideoBrowser.util.VideoUtils
+import io.reactivex.rxjava3.disposables.Disposable
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.yield
+import java.io.ByteArrayInputStream
+import androidx.core.net.toUri
+import com.myAllVideoBrowser.ui.main.home.browser.adblocker.AdBlockEngine
+import com.myAllVideoBrowser.util.AppLogger
 
-class CustomWebChromeClient(
+val injectJsInterceptor = """
+        (function() {
+            const oldSend = XMLHttpRequest.prototype.send;
+            XMLHttpRequest.prototype.send = function(body) {
+                if (window.AndroidBridge && window.AndroidBridge.shouldInterceptPost(this._url, body || "")) {
+                    this.abort(); // Kill the XHR
+                    return;
+                }
+                oldSend.apply(this, arguments);
+            };
+
+            const oldFetch = window.fetch;
+            window.fetch = async function(input, init) {
+                const url = typeof input === 'string' ? input : input.url;
+                const method = init?.method?.toUpperCase() || 'GET';
+                if (method === 'POST' && window.AndroidBridge) {
+                    if (window.AndroidBridge.shouldInterceptPost(url, init.body || "")) {
+                        return new Response('', { status: 200 }); // Return empty
+                    }
+                }
+                return oldFetch.apply(this, arguments);
+            };
+        })();
+    """.trimIndent()
+
+enum class ContentType {
+    M3U8,
+    MPD,
+    VIDEO,
+    AUDIO,
+    OTHER
+}
+
+class CustomWebViewClient(
     private val tabViewModel: WebTabViewModel,
-    private val settingsViewModel: SettingsViewModel,
+    private val settingsModel: SettingsViewModel,
+    private val videoDetectionModel: IVideoDetector,
+    private val historyModel: HistoryViewModel,
+    private val okHttpProxyClient: OkHttpProxyClient,
     private val updateTabEvent: SingleLiveEvent<WebTab>,
     private val pageTabProvider: PageTabProvider,
-    private val dataBinding: FragmentWebTabBinding,
-    private val appUtil: AppUtil,
-    private val mainActivity: MainActivity
-) : WebChromeClient() {
+    private val proxyController: CustomProxyController,
+    private val adBlockEngine: AdBlockEngine
+) : WebViewClient() {
+    var videoAlert: MaterialAlertDialogBuilder? = null
+    private var lastSavedHistoryUrl: String = ""
+    private var lastSavedTitleHistory: String = ""
+    private var lastRegularCheckUrl = ""
+    private val regularJobsStorage: MutableMap<String, List<Disposable>> = mutableMapOf()
+    private var approvedUrl: String? = null
 
-    override fun onCreateWindow(
-        view: WebView?,
-        isDialog: Boolean,
-        isUserGesture: Boolean,
-        resultMsg: Message?
-    ): Boolean {
-        if (!isUserGesture || view == null || resultMsg == null) {
-            return false
+    // Some sites hyperlink to plain "http://" even though the same host also
+    // serves "https://". The system WebView refuses cleartext (http) traffic
+    // by default (net::ERR_CLEARTEXT_NOT_PERMITTED) - rather than showing an
+    // error page, silently retry once with "https://" before giving up.
+    private val cleartextUpgradedUrls: MutableSet<String> = mutableSetOf()
+
+    companion object {
+        fun emptyResponse(): WebResourceResponse {
+            return WebResourceResponse(
+                "text/plain",
+                "utf-8",
+                ByteArrayInputStream("".toByteArray())
+            )
         }
+    }
 
-        // NOTE: window.open() popups triggered from JS (e.g. Google Identity
-        // Services / "Sign in with Apple" buttons) are NOT <a href> anchor
-        // clicks, so view.hitTestResult will not be SRC_ANCHOR_TYPE and won't
-        // carry a target URL. We can't know the destination URL yet at this
-        // point anyway - it gets loaded into the child WebView asynchronously
-        // after we hand the transport back. So we no longer gate popup
-        // creation on hitTestResult; we just create the child WebView and let
-        // it load whatever URL the page navigates it to.
-        val hitTestResult = view.hitTestResult
-        val hitUrl = hitTestResult.extra
-        AppLogger.d("ON_CREATE_WINDOW: hitTestResult url (may be null for JS-triggered popups): $hitUrl")
+    override fun doUpdateVisitedHistory(view: WebView?, url: String?, isReload: Boolean) {
+        val viewTitle = view?.title
+        val title = tabViewModel.currentTitle.get()
+        val userAgent = view?.settings?.userAgentString ?: tabViewModel.userAgent.get()
 
-        try {
-            val transport = resultMsg.obj as WebView.WebViewTransport
-            val newWebView = WebView(view.context)
-            transport.webView = newWebView
+        if (url != null && lastSavedHistoryUrl != url) {
+            historyModel.viewModelScope.launch(historyModel.executorSingleHistory) {
+                val faviconUrl = FaviconUtils.getFaviconUrl(url)
+                saveUrlToHistory(url, faviconUrl, viewTitle ?: title)
 
-            tabViewModel.openPageEvent.value =
-                WebTab(
-                    webview = newWebView,
-                    resultMsg = resultMsg,
-                    url = hitUrl ?: "",
-                    title = "Loading...",
-                    icon = null
+                videoDetectionModel.onStartPage(
+                    url,
+                    userAgent
+                        ?: BrowserFragment.MOBILE_USER_AGENT
                 )
-
-            // Required: hands the transport carrying newWebView back to the
-            // WebView framework. Without this call the popup window request
-            // never completes and the child WebView never receives the
-            // navigation, so it stays blank forever (this was the main
-            // reason Google/Apple sign-in popups did nothing when clicked).
-            resultMsg.sendToTarget()
-
-            return true
-        } catch (e: Exception) {
-            AppLogger.e("Failed to create new WebView window: ${e.message}")
-            Toast.makeText(view.context, "WebView provider not available.", Toast.LENGTH_SHORT).show()
-            return false
+                tabViewModel.onUpdateVisitedHistory(
+                    url,
+                    title,
+                    userAgent
+                )
+            }
         }
+        super.doUpdateVisitedHistory(view, url, isReload)
     }
 
-    override fun onCloseWindow(window: WebView?) {
-        // Sign-in popups (Google/Apple) call window.close() via JS once the
-        // OAuth flow finishes (after posting the result back to the opener
-        // via postMessage/web_message). Without handling this, the popup tab
-        // would stay open and empty after a successful login.
-        if (window == null) {
-            super.onCloseWindow(window)
-            return
+    override fun onReceivedHttpAuthRequest(
+        view: WebView?, handler: HttpAuthHandler?, host: String?, realm: String?
+    ) {
+        if (proxyController.getCurrentRunningProxy().host == host) {
+            val creds = proxyController.getProxyCredentials()
+
+            if (creds.first.isNotEmpty() || creds.second.isNotEmpty()) {
+                handler?.proceed(creds.first, creds.second)
+            }
         }
-        val pageTab = pageTabProvider.getPageTab(tabViewModel.thisTabIndex.get())
-        tabViewModel.closePageEvent.value = pageTab
+        super.onReceivedHttpAuthRequest(view, handler, host, realm)
     }
 
-    override fun onReceivedIcon(view: WebView?, icon: Bitmap?) {
-        val pageTab = pageTabProvider.getPageTab(tabViewModel.thisTabIndex.get())
+    override fun shouldInterceptRequest(
+        view: WebView?, request: WebResourceRequest?
+    ): WebResourceResponse? {
+        if (request == null || request.url == null) {
+            return super.shouldInterceptRequest(view, request)
+        }
 
+        val url = request.url.toString()
+
+        val resourceType = when {
+            request.isForMainFrame -> "main_frame"
+            request.url.toString().contains(".js") -> "script"
+            request.url.toString().contains(".css") -> "stylesheet"
+            request.requestHeaders["X-Requested-With"] != null -> "xmlhttprequest"
+            request.requestHeaders["Accept"]?.contains("image") == true -> "image"
+            else -> "other"
+        }
+
+        if (settingsModel.isAdBlockOn.get()) {
+            val isAd = adBlockEngine.isAd(
+                url,
+                tabViewModel.getTabTextInput().get() ?: "",
+                resourceType
+            )
+
+            if (isAd) {
+                AppLogger.d("AdBlock (GET/Resource): Blocked $url")
+                return emptyResponse()
+            }
+        }
+
+
+        val isCheckM3u8 = settingsModel.isCheckIfEveryRequestOnM3u8.get()
+        val isCheckOnMp4 = settingsModel.getIsCheckEveryRequestOnMp4Video().get()
+        val isCheckOnAudio = settingsModel.isCheckOnAudio.get()
+
+        if (isCheckOnMp4 || isCheckM3u8 || isCheckOnAudio) {
+            val requestWithCookies = request.let { resourceRequest ->
+                try {
+                    CookieUtils.webResourceRequestToOkHttpRequest(resourceRequest)
+                } catch (_: Throwable) {
+                    null
+                }
+            }
+
+            val contentType =
+                VideoUtils.getContentTypeByUrl(url, requestWithCookies?.headers, okHttpProxyClient)
+            val isInterruptIntreceptedResources =
+                settingsModel.isInterruptIntreceptedResources.get()
+            when {
+
+                contentType == ContentType.M3U8 || contentType == ContentType.MPD || url.contains(".m3u8") || url.contains(
+                    ".mpd"
+                ) || (url.contains(".txt") && url.contains("hentaihaven")) -> {
+                    val isM3u8 =
+                        ContentType.M3U8 == contentType || (url.contains(".txt")) || url.contains(".m3u8")
+                    val isMpd = ContentType.MPD == contentType || url.contains(".mpd")
+
+                    if (requestWithCookies != null && isCheckM3u8) {
+                        videoDetectionModel.verifyLinkStatus(
+                            requestWithCookies, tabViewModel.currentTitle.get(), isM3u8, isMpd
+                        )
+                    }
+                    if (isInterruptIntreceptedResources) {
+                        return emptyResponse()
+                    }
+                }
+
+                else -> {
+                    if ((isCheckOnMp4 || isCheckOnAudio) && contentType != ContentType.OTHER) {
+                        val disposable = videoDetectionModel.checkRegularVideoOrAudio(
+                            requestWithCookies,
+                            isCheckOnAudio,
+                            isCheckOnMp4
+                        )
+
+                        val currentUrl = tabViewModel.getTabTextInput().get() ?: ""
+                        if (currentUrl != lastRegularCheckUrl) {
+                            regularJobsStorage[lastRegularCheckUrl]?.forEach {
+                                it.dispose()
+                            }
+                            regularJobsStorage.remove(lastRegularCheckUrl)
+                            lastRegularCheckUrl = currentUrl
+                        }
+                        if (disposable != null) {
+                            val overall = mutableListOf<Disposable>()
+                            overall.addAll(regularJobsStorage[currentUrl]?.toList() ?: emptyList())
+                            overall.add(disposable)
+                            regularJobsStorage[currentUrl] = overall
+                        }
+                        if (isInterruptIntreceptedResources) {
+                            return emptyResponse()
+                        }
+                    }
+                }
+            }
+        }
+
+        return super.shouldInterceptRequest(
+            view, request
+        )
+    }
+
+    override fun onPageStarted(view: WebView, url: String, favicon: Bitmap?) {
+        super.onPageStarted(view, url, favicon)
+
+        view.evaluateJavascript(injectJsInterceptor, null)
+
+        videoAlert = null
+        val pageTab = pageTabProvider.getPageTab(tabViewModel.thisTabIndex.get())
         val headers = pageTab.getHeaders() ?: emptyMap()
-        val updateTab = WebTab(
-            pageTab.getUrl(),
-            pageTab.getTitle(),
-            icon ?: pageTab.getFavicon(),
+        val favi = pageTab.getFavicon() ?: view.favicon ?: favicon
+
+        updateTabEvent.value = WebTab(
+            url,
+            view.title,
+            favi,
             headers,
             view,
             id = pageTab.id
         )
-        updateTabEvent.value = updateTab
+        tabViewModel.onStartPage(url, view.title)
     }
 
-    override fun onProgressChanged(view: WebView?, newProgress: Int) {
-        super.onProgressChanged(view, newProgress)
-        tabViewModel.setProgress(newProgress)
-        if (newProgress == 100) {
-            tabViewModel.isShowProgress.set(false)
+    override fun shouldOverrideUrlLoading(view: WebView, url: WebResourceRequest): Boolean {
+        val newUrl = url.url.toString()
+        if (newUrl.startsWith("http") && url.isForMainFrame) {
+            if (approvedUrl == newUrl) {
+                approvedUrl = null
+                return false
+            }
+
+            val currentUrl = view.url
+            val currentHost = currentUrl?.toUri()?.host
+            val newHost = url.url.host
+
+            if (settingsModel.isAskRedirection.get() && url.isRedirect && currentHost != null && newHost != null && currentHost != newHost) {
+                showRedirectionDialog(view, newUrl, newHost)
+                return true
+            }
+
+            if (!tabViewModel.isTabInputFocused.get()) {
+                tabViewModel.setTabTextInput(newUrl)
+            }
+            return false
         } else {
-            tabViewModel.isShowProgress.set(true)
+            return true
         }
     }
 
-    override fun onShowCustomView(view: View?, callback: CustomViewCallback?) {
-        super.onShowCustomView(view, callback)
-        (mainActivity).requestedOrientation =
-            ActivityInfo.SCREEN_ORIENTATION_FULL_USER
-        dataBinding.webviewContainer.visibility = View.GONE
-        dataBinding.customView.rootView.findViewById<View>(R.id.bottom_bar).visibility =
-            View.GONE
-        (mainActivity).window?.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
-        dataBinding.customView.addView(view)
-        appUtil.hideSystemUI(mainActivity.window, dataBinding.customView)
-        dataBinding.customView.visibility = View.VISIBLE
-        dataBinding.containerBrowser.visibility =
-            View.GONE
+    private fun showRedirectionDialog(view: WebView, newUrl: String, newHost: String) {
+        val context = view.context
+        MaterialAlertDialogBuilder(context)
+            .setTitle(context.getString(R.string.redirection_dialog_title))
+            .setMessage("${context.getString(R.string.redirection_dialog_message)} $newHost")
+            .setPositiveButton(context.getString(R.string.yes)) { _, _ ->
+                approvedUrl = newUrl
+                view.loadUrl(newUrl)
+            }
+            .setNegativeButton(context.getString(R.string.no), null)
+            .setNeutralButton(context.getString(R.string.dontshow)) { _, _ ->
+                settingsModel.setIsAskRedirection(false)
+                approvedUrl = newUrl
+                view.loadUrl(newUrl)
+            }
+            .show()
     }
 
-    override fun onHideCustomView() {
-        super.onHideCustomView()
-        dataBinding.customView.removeAllViews()
-        dataBinding.webviewContainer.visibility = View.VISIBLE
-        dataBinding.customView.visibility = View.GONE
-        (mainActivity).window?.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
-        dataBinding.customView.rootView.findViewById<View>(R.id.bottom_bar).visibility =
-            View.VISIBLE
-        dataBinding.containerBrowser.visibility =
-            View.VISIBLE
-        mainActivity.requestedOrientation = if (settingsViewModel.isLockPortrait.get()) {
-            ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
-        } else {
-            ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
+    override fun onPageFinished(view: WebView, url: String) {
+        super.onPageFinished(view, url)
+        tabViewModel.finishPage(url)
+    }
+
+    override fun onReceivedError(
+        view: WebView,
+        request: WebResourceRequest,
+        error: WebResourceError
+    ) {
+        val requestUrl = request.url.toString()
+
+        if (request.isForMainFrame &&
+            request.url.scheme == "http" &&
+            isClearTextError(error) &&
+            cleartextUpgradedUrls.add(requestUrl)
+        ) {
+            AppLogger.d("CLEARTEXT blocked, retrying over https: $requestUrl")
+            view.loadUrl("https://" + requestUrl.removePrefix("http://"))
+            return
         }
-        appUtil.showSystemUI(mainActivity.window, dataBinding.customView)
+
+        super.onReceivedError(view, request, error)
+    }
+
+    private fun isClearTextError(error: WebResourceError): Boolean {
+        // WebViewClient doesn't expose a public ERROR_CLEARTEXT_NOT_PERMITTED
+        // constant, so match on the description WebView actually reports
+        // (net::ERR_CLEARTEXT_NOT_PERMITTED) instead of a numeric error code.
+        return error.description?.contains("CLEARTEXT_NOT_PERMITTED", ignoreCase = true) == true
+    }
+
+    override fun onRenderProcessGone(
+        view: WebView?, detail: RenderProcessGoneDetail?
+    ): Boolean {
+        val pageTab = pageTabProvider.getPageTab(tabViewModel.thisTabIndex.get())
+
+        val webView = pageTab.getWebView()
+        if (if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                view == webView && detail?.didCrash() == true
+            } else {
+                view == webView
+            }
+        ) {
+            webView?.destroy()
+            return true
+        }
+
+        return super.onRenderProcessGone(view, detail)
+    }
+
+    private suspend fun saveUrlToHistory(url: String, favicon: Any?, title: String?) {
+        val isTitleEmpty = title?.trim()?.isEmpty() == true
+
+        if (!isTitleEmpty && lastSavedTitleHistory != title && lastSavedHistoryUrl != url && url.isNotEmpty() && !url.contains(
+                "about:blank"
+            )
+        ) {
+            lastSavedHistoryUrl = url
+            lastSavedTitleHistory = title ?: ""
+
+            val faviconUrl = when (favicon) {
+                is String -> favicon
+                else -> FaviconUtils.getFaviconUrl(url)
+            }
+
+            yield()
+
+            historyModel.saveHistory(
+                HistoryItem(
+                    url = url, faviconUrl = faviconUrl, title = title
+                )
+            )
+        }
     }
 }
