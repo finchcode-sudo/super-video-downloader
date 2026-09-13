@@ -26,6 +26,8 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.viewModelScope
+import androidx.webkit.WebSettingsCompat
+import androidx.webkit.WebViewFeature
 import com.bumptech.glide.Glide
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import com.myAllVideoBrowser.R
@@ -457,6 +459,18 @@ class WebTabFragment : BaseWebTabFragment() {
                 userAgentString = BrowserFragment.DESKTOP_USER_AGENT
             }
         }
+
+        // Android WebView automatically attaches an "X-Requested-With: <package name>"
+        // header to every request, which reveals to the server that the request is
+        // coming from an embedded WebView (not a real browser). Google's sign-in
+        // pages specifically check for this header and reject the login with a
+        // "disallowed_useragent" error. Clearing the allow-list removes that header
+        // for all origins, so Google (and other providers) can't detect the WebView
+        // this way and OAuth logins go through normally.
+        if (WebViewFeature.isFeatureSupported(WebViewFeature.REQUESTED_WITH_HEADER_ALLOW_LIST)) {
+            WebSettingsCompat.setRequestedWithHeaderOriginAllowList(webSettings, emptySet())
+        }
+
         currentWebView.setOnCreateContextMenuListener { menu, v, _ ->
             val webView = v as WebView
             val hitTestResult = webView.hitTestResult
