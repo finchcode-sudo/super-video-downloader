@@ -80,8 +80,9 @@
     <string name="save_proxy">保存</string>
     <string name="http_proxy">HTTP 代理</string>
     <string name="check_if_in_list">仅检测支持列表内的网址</string>
-    <string name="bookmark">书签</string>
-    <string name="bookmarks_list">书签列表</string>
+    <string name="bookmark">添加书签</string>
+    <string name="bookmarks_list">书签</string>
+    <string name="bookmark_saved_toast">已保存到书签</string>
     <string name="is_auto_dark">自动主题模式</string>
     <string name="check_every_request_on_audio">检测所有音频请求</string>
     <string name="title_video">视频</string>
