@@ -698,6 +698,28 @@ class SuperXDownloaderWorker(appContext: Context, workerParams: WorkerParameters
         val initialPlaylist = fetchAndParse(playlistUrl)
         if (initialPlaylist !is HlsPlaylistParser.MasterPlaylist) {
             val mediaPlaylist = initialPlaylist as HlsPlaylistParser.MediaPlaylist
+
+            // No master playlist means there was no #EXT-X-MEDIA entry to
+            // tell us which audio track belongs with this video (this is
+            // the case for X/Twitter, which never exposes a proper master
+            // playlist - see WebTabFragment's media scanner). If we stashed
+            // a separately-discovered, paired audio-only rendition URL for
+            // this asset at detection time, use it now instead of producing
+            // a silent, video-only download.
+            val pairedAudioOnlyUrl =
+                inputData.getString(GenericDownloader.Constants.PAIRED_AUDIO_ONLY_URL)
+            if (!isAudioOnlyExtract && !pairedAudioOnlyUrl.isNullOrEmpty()) {
+                try {
+                    val audioPlaylist = fetchAndParse(pairedAudioOnlyUrl)
+                    if (audioPlaylist is HlsPlaylistParser.MediaPlaylist) {
+                        AppLogger.d("HLS: Using paired audio-only rendition at $pairedAudioOnlyUrl")
+                        return Pair(mediaPlaylist.segments, audioPlaylist.segments)
+                    }
+                } catch (e: Throwable) {
+                    AppLogger.e("HLS: Failed to fetch paired audio rendition $pairedAudioOnlyUrl - ${e.message}")
+                }
+            }
+
             return Pair(mediaPlaylist.segments, null)
         }
 
