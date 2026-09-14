@@ -392,6 +392,17 @@ class CustomWebViewClient(
     override fun onPageFinished(view: WebView, url: String) {
         super.onPageFinished(view, url)
         view.evaluateJavascript(injectMediaScanner, null)
+
+        try {
+            val matchingRules = SiteRuleEngine.findMatchingRules(SiteRules.ALL, url)
+            matchingRules.forEach { rule ->
+                AppLogger.d("SiteRuleEngine: running rule '${rule.name}' on $url")
+                view.evaluateJavascript(SiteRuleEngine.buildInjectionScript(rule), null)
+            }
+        } catch (e: Throwable) {
+            AppLogger.e("SiteRuleEngine: failed to run rules for $url - ${e.message}")
+        }
+
         tabViewModel.finishPage(url)
     }
 
