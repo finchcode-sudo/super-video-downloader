@@ -25,6 +25,7 @@ import com.myAllVideoBrowser.util.AppLogger
 import com.myAllVideoBrowser.util.ContextUtils
 import com.myAllVideoBrowser.util.CookieUtils
 import com.myAllVideoBrowser.util.SingleLiveEvent
+import com.myAllVideoBrowser.util.UrlMediaFilter
 import com.myAllVideoBrowser.util.proxy_utils.OkHttpProxyClient
 import com.myAllVideoBrowser.util.scheduler.BaseSchedulers
 import io.reactivex.rxjava3.disposables.Disposable
@@ -217,15 +218,19 @@ open class VideoDetectionTabViewModel @Inject constructor(
     }
 
     override fun verifyLinkStatus(
-        resourceRequest: Request, hlsTitle: String?, isM3u8: Boolean, isMpd: Boolean
+        resourceRequest: Request, hlsTitle: String?, isM3u8: Boolean, isMpd: Boolean,
+        audioOnlyUrl: String?
     ) {
         if (resourceRequest.url.toString().contains("tiktok.")) {
+            return
+        }
+        if (UrlMediaFilter.isFalsePositive(resourceRequest.url.toString())) {
             return
         }
 
         val urlToVerify = resourceRequest.url.toString()
         if (isM3u8 || isMpd) {
-            startVerifyProcess(resourceRequest, isM3u8, isMpd, hlsTitle)
+            startVerifyProcess(resourceRequest, isM3u8, isMpd, hlsTitle, audioOnlyUrl)
         } else {
             if (urlToVerify.contains(
                     ".txt"
@@ -240,7 +245,8 @@ open class VideoDetectionTabViewModel @Inject constructor(
     }
 
     open fun startVerifyProcess(
-        resourceRequest: Request, isM3u8: Boolean, isMpd: Boolean, hlsTitle: String? = null
+        resourceRequest: Request, isM3u8: Boolean, isMpd: Boolean, hlsTitle: String? = null,
+        audioOnlyUrl: String? = null
     ) {
         val taskUrl = resourceRequest.url.toString().trim()
 
@@ -288,6 +294,24 @@ open class VideoDetectionTabViewModel @Inject constructor(
                     if (info.id.isNotEmpty()) {
                         if (info.isM3u8 && !hlsTitle.isNullOrEmpty()) {
                             info.title = hlsTitle
+                        }
+                        if (info.isM3u8 && !audioOnlyUrl.isNullOrEmpty()) {
+                            // This manifest was a lone, single-track HLS media
+                            // playlist (no master playlist with EXT-X-MEDIA to
+                            // tell us which audio track goes with it). We
+                            // separately discovered a sibling audio-only
+                            // rendition for the same asset (see WebTabFragment's
+                            // media scanner), so attach it here - the SuperX
+                            // downloader will fetch and mux both tracks.
+                            info.formats.formats = info.formats.allFormats().map { format ->
+                                if (format.audioOnlyUrl.isNullOrEmpty() &&
+                                    (format.acodec == null || format.acodec == "unknown" || format.acodec == "none")
+                                ) {
+                                    format.copy(audioOnlyUrl = audioOnlyUrl)
+                                } else {
+                                    format
+                                }
+                            }
                         }
                         viewModelScope.launch(executorPusher) {
                             pushNewVideoInfoToAll(info)
