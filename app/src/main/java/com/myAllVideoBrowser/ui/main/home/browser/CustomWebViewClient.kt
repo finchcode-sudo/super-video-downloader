@@ -57,6 +57,89 @@ val injectJsInterceptor = """
         })();
     """.trimIndent()
 
+// Passive network sniffing (shouldInterceptRequest) can only see an m3u8/mpd
+// manifest AFTER the page's own JS actually requests it - and many players
+// only do that once the user presses play. This script instead proactively
+// looks for manifest URLs that are already sitting in the page (HTML source,
+// inline <script> JSON, a <video>/<source> element's src) or that get
+// assigned to a media element's `.src` by the player's own JS, and reports
+// them to Android immediately - well before any such network request happens.
+val injectMediaScanner = """
+        (function() {
+            if (window.__svd_media_scanner_installed) return;
+            window.__svd_media_scanner_installed = true;
+
+            var seen = new Set();
+            var MEDIA_RE = /https?:\/\/[^\s"'<>\\]+\.(?:m3u8|mpd)(?:\?[^\s"'<>\\]*)?/gi;
+
+            function report(url) {
+                try {
+                    if (!url || typeof url !== 'string') return;
+                    url = url.split('#')[0];
+                    if (seen.has(url)) return;
+                    seen.add(url);
+                    if (window.AndroidBridge && window.AndroidBridge.reportMediaUrl) {
+                        window.AndroidBridge.reportMediaUrl(url);
+                    }
+                } catch (e) {}
+            }
+
+            function scanText(text) {
+                if (!text) return;
+                var m;
+                MEDIA_RE.lastIndex = 0;
+                while ((m = MEDIA_RE.exec(text)) !== null) {
+                    report(m[0]);
+                }
+            }
+
+            function scanDom() {
+                try { scanText(document.documentElement.outerHTML); } catch (e) {}
+                try {
+                    document.querySelectorAll('video, source').forEach(function (el) {
+                        if (el.src) report(el.src);
+                        if (el.currentSrc) report(el.currentSrc);
+                    });
+                } catch (e) {}
+            }
+
+            // Catch the URL the instant a player (hls.js, dash.js, native
+            // players, etc.) assigns it to a media element's `.src`, which
+            // usually happens before any manifest fetch is issued.
+            try {
+                var proto = HTMLMediaElement.prototype;
+                var desc = Object.getOwnPropertyDescriptor(proto, 'src') ||
+                    Object.getOwnPropertyDescriptor(Element.prototype, 'src');
+                if (desc && desc.set) {
+                    Object.defineProperty(proto, 'src', {
+                        get: desc.get,
+                        set: function (value) {
+                            report(value);
+                            return desc.set.call(this, value);
+                        },
+                        configurable: true
+                    });
+                }
+            } catch (e) {}
+
+            // SPAs (like most video sites) mutate the DOM long after the
+            // initial page load, so keep re-scanning as new content appears.
+            try {
+                var observer = new MutationObserver(function () { scanDom(); });
+                observer.observe(document.documentElement, {
+                    childList: true,
+                    subtree: true,
+                    attributes: true,
+                    attributeFilter: ['src']
+                });
+            } catch (e) {}
+
+            scanDom();
+            setTimeout(scanDom, 1500);
+            setTimeout(scanDom, 4000);
+        })();
+    """.trimIndent()
+
 enum class ContentType {
     M3U8,
     MPD,
@@ -244,6 +327,7 @@ class CustomWebViewClient(
         super.onPageStarted(view, url, favicon)
 
         view.evaluateJavascript(injectJsInterceptor, null)
+        view.evaluateJavascript(injectMediaScanner, null)
 
         videoAlert = null
         val pageTab = pageTabProvider.getPageTab(tabViewModel.thisTabIndex.get())
@@ -307,6 +391,7 @@ class CustomWebViewClient(
 
     override fun onPageFinished(view: WebView, url: String) {
         super.onPageFinished(view, url)
+        view.evaluateJavascript(injectMediaScanner, null)
         tabViewModel.finishPage(url)
     }
 
