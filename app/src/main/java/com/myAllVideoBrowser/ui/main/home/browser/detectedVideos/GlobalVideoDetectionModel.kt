@@ -10,6 +10,7 @@ import com.myAllVideoBrowser.ui.main.home.browser.DownloadButtonStateCanDownload
 import com.myAllVideoBrowser.ui.main.home.browser.DownloadButtonStateCanNotDownload
 import com.myAllVideoBrowser.ui.main.home.browser.DownloadButtonStateLoading
 import com.myAllVideoBrowser.util.AppLogger
+import com.myAllVideoBrowser.util.UrlMediaFilter
 import com.myAllVideoBrowser.util.proxy_utils.OkHttpProxyClient
 import com.myAllVideoBrowser.util.scheduler.BaseSchedulers
 import io.reactivex.rxjava3.disposables.Disposable
@@ -74,9 +75,13 @@ class GlobalVideoDetectionModel @Inject constructor(
 
     @Synchronized
     override fun verifyLinkStatus(
-        resourceRequest: Request, hlsTitle: String?, isM3u8: Boolean, isMpd: Boolean
+        resourceRequest: Request, hlsTitle: String?, isM3u8: Boolean, isMpd: Boolean,
+        audioOnlyUrl: String?
     ) {
         if (resourceRequest.url.toString().contains("tiktok.")) {
+            return
+        }
+        if (UrlMediaFilter.isFalsePositive(resourceRequest.url.toString())) {
             return
         }
 
@@ -89,7 +94,7 @@ class GlobalVideoDetectionModel @Inject constructor(
                 if ((currentPageUrl == lastVerifiedM3u8PointUrl.first && lastVerifiedM3u8PointUrl.second != urlToVerify) || currentPageUrl != lastVerifiedM3u8PointUrl.first) {
                     lastVerifiedM3u8PointUrl = Pair(currentPageUrl, urlToVerify)
 
-                    startVerifyProcess(resourceRequest, isM3u8, isMpd, hlsTitle)
+                    startVerifyProcess(resourceRequest, isM3u8, isMpd, hlsTitle, audioOnlyUrl)
                 }
             } else {
                 if (urlToVerify.contains(".txt")) {
@@ -105,7 +110,8 @@ class GlobalVideoDetectionModel @Inject constructor(
     }
 
     override fun startVerifyProcess(
-        resourceRequest: Request, isM3u8: Boolean, isMpd: Boolean, hlsTitle: String?
+        resourceRequest: Request, isM3u8: Boolean, isMpd: Boolean, hlsTitle: String?,
+        audioOnlyUrl: String?
     ) {
         val taskUrl = resourceRequest.url.toString()
         if (taskUrl.isEmpty()) return
@@ -151,6 +157,17 @@ class GlobalVideoDetectionModel @Inject constructor(
                 if (info.id.isNotEmpty()) {
                     if (info.isM3u8 && !hlsTitle.isNullOrEmpty()) {
                         info.title = hlsTitle
+                    }
+                    if (info.isM3u8 && !audioOnlyUrl.isNullOrEmpty()) {
+                        info.formats.formats = info.formats.allFormats().map { format ->
+                            if (format.audioOnlyUrl.isNullOrEmpty() &&
+                                (format.acodec == null || format.acodec == "unknown" || format.acodec == "none")
+                            ) {
+                                format.copy(audioOnlyUrl = audioOnlyUrl)
+                            } else {
+                                format
+                            }
+                        }
                     }
                     val state = downloadButtonState.get()
                     
