@@ -156,6 +156,7 @@ object SuperXDownloader : GenericDownloader() {
         data.putBoolean(Constants.IS_LIVE, videoInfo.isLive)
         data.putString(Constants.VIDEO_CODEC, firstFormat?.vcodec)
         data.putBoolean(Constants.IS_AUDIO_ONLY_EXTRACT, videoInfo.isAudioOnlyExtract)
+        data.putString(Constants.PAIRED_AUDIO_ONLY_URL, firstFormat?.audioOnlyUrl)
         return data
     }
 
