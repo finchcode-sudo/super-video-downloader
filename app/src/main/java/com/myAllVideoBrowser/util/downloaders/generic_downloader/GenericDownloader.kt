@@ -102,6 +102,7 @@ abstract class GenericDownloader : IDownloader {
             const val IS_M3U8 = "IS_M3U8"
             const val IS_MPD = "IS_MPD"
             const val SELECTED_FORMAT_ID = "SELECTED_FORMAT_ID"
+            const val PAIRED_AUDIO_ONLY_URL = "PAIRED_AUDIO_ONLY_URL"
             const val IS_LIVE = "IS_LIVE"
             const val VIDEO_CODEC = "VIDEO_CODEC"
             const val IS_AUDIO_ONLY_EXTRACT = "IS_AUDIO_ONLY_EXTRACT"
