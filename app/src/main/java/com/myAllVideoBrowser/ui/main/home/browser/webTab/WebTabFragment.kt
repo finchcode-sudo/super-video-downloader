@@ -12,6 +12,7 @@ import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
 import android.view.inputmethod.EditorInfo
+import android.webkit.CookieManager
 import android.webkit.WebSettings
 import android.webkit.WebView
 import android.widget.EditText
@@ -64,6 +65,7 @@ import com.myAllVideoBrowser.util.AppUtil
 import com.myAllVideoBrowser.util.FileNameCleaner
 import com.myAllVideoBrowser.util.proxy_utils.CustomProxyController
 import com.myAllVideoBrowser.util.proxy_utils.OkHttpProxyClient
+import okhttp3.Request
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -880,17 +882,39 @@ class WebTabFragment : BaseWebTabFragment() {
         }
     }
 
-    private val shouldInterceptPostRequests = WebPostBridge { url, body ->
-        val isAdBlockOn = mainActivity.settingsViewModel.isAdBlockOn.get()
-        val isAd = isAdBlockOn &&
-                adBlockEngine.isAd(
-                    url,
-                    tabViewModel.getTabTextInput().get() ?: "",
-                    "xmlhttprequest"
-                )
-        if (isAd) {
-            AppLogger.d("AdBlock (POST): Blocked $url")
+    private val shouldInterceptPostRequests = WebPostBridge(
+        onIntercept = { url, body ->
+            val isAdBlockOn = mainActivity.settingsViewModel.isAdBlockOn.get()
+            val isAd = isAdBlockOn &&
+                    adBlockEngine.isAd(
+                        url,
+                        tabViewModel.getTabTextInput().get() ?: "",
+                        "xmlhttprequest"
+                    )
+            if (isAd) {
+                AppLogger.d("AdBlock (POST): Blocked $url")
+            }
+            isAd
+        },
+        onMediaUrlFound = { url ->
+            if (mainActivity.settingsViewModel.isCheckIfEveryRequestOnM3u8.get()) {
+                try {
+                    val isM3u8 = url.contains(".m3u8")
+                    val isMpd = url.contains(".mpd")
+                    val cookies = CookieManager.getInstance().getCookie(url)
+                    val requestBuilder = Request.Builder().url(url)
+                    if (!cookies.isNullOrEmpty()) {
+                        requestBuilder.header("Cookie", cookies)
+                    }
+                    val request = requestBuilder.build()
+                    AppLogger.d("MediaScanner: found $url before it was requested over the network")
+                    videoDetectionTabViewModel.verifyLinkStatus(
+                        request, tabViewModel.currentTitle.get(), isM3u8, isMpd
+                    )
+                } catch (e: Throwable) {
+                    AppLogger.e("MediaScanner: failed to handle $url - ${e.message}")
+                }
+            }
         }
-        isAd
-    }
+    )
 }
