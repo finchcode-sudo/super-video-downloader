@@ -14,7 +14,8 @@ interface IVideoDetector {
         resourceRequest: Request,
         hlsTitle: String? = null,
         isM3u8: Boolean = false,
-        isMpd: Boolean = false
+        isMpd: Boolean = false,
+        audioOnlyUrl: String? = null
     )
 
     fun getDownloadBtnIcon(): ObservableInt
