@@ -109,6 +109,12 @@ class WebTabFragment : BaseWebTabFragment() {
 
     private lateinit var videoDetectionTabViewModel: VideoDetectionTabViewModel
 
+    // Set in configureWebView(); referenced by shouldInterceptPostRequests'
+    // onMediaUrlFound so JS-scanner/site-rule discoveries share the exact
+    // same video/audio asset-pairing cache as the network sniffer
+    // (see CustomWebViewClient.reportDiscoveredMediaUrl).
+    private var customWebViewClient: CustomWebViewClient? = null
+
     private lateinit var webTab: WebTab
 
     private var videoToast: Toast? = null
@@ -420,6 +426,7 @@ class WebTabFragment : BaseWebTabFragment() {
             proxyController,
             adBlockEngine
         )
+        customWebViewClient = webViewClient
 
         val chromeClient = CustomWebChromeClient(
             tabViewModel,
@@ -898,22 +905,17 @@ class WebTabFragment : BaseWebTabFragment() {
         },
         onMediaUrlFound = { url ->
             if (mainActivity.settingsViewModel.isCheckIfEveryRequestOnM3u8.get()) {
-                try {
-                    val isM3u8 = url.contains(".m3u8")
-                    val isMpd = url.contains(".mpd")
-                    val cookies = CookieManager.getInstance().getCookie(url)
-                    val requestBuilder = Request.Builder().url(url)
-                    if (!cookies.isNullOrEmpty()) {
-                        requestBuilder.header("Cookie", cookies)
-                    }
-                    val request = requestBuilder.build()
-                    AppLogger.d("MediaScanner: found $url before it was requested over the network")
-                    videoDetectionTabViewModel.verifyLinkStatus(
-                        request, tabViewModel.currentTitle.get(), isM3u8, isMpd
-                    )
-                } catch (e: Throwable) {
-                    AppLogger.e("MediaScanner: failed to handle $url - ${e.message}")
-                }
+                // Route through the SAME pairing engine the network sniffer
+                // uses (see CustomWebViewClient.reportDiscoveredMediaUrl).
+                // Using two separate, uncoordinated pairing caches (one here,
+                // one in CustomWebViewClient) was the actual bug behind
+                // audio pairing silently not working: whichever path
+                // reported a URL first "won" with no paired audio, and the
+                // later, correctly-paired report was just deduped as a
+                // repeat. A single shared cache fixes that race.
+                val isM3u8 = url.contains(".m3u8")
+                val isMpd = url.contains(".mpd")
+                customWebViewClient?.reportDiscoveredMediaUrl(url, isM3u8, isMpd)
             }
         }
     )
