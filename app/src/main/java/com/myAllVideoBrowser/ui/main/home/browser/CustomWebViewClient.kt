@@ -2,6 +2,9 @@ package com.myAllVideoBrowser.ui.main.home.browser
 
 import android.graphics.Bitmap
 import android.os.Build
+import android.os.Handler
+import android.os.Looper
+import android.webkit.CookieManager
 import android.webkit.HttpAuthHandler
 import android.webkit.RenderProcessGoneDetail
 import android.webkit.WebResourceError
@@ -31,6 +34,7 @@ import java.io.ByteArrayInputStream
 import androidx.core.net.toUri
 import com.myAllVideoBrowser.ui.main.home.browser.adblocker.AdBlockEngine
 import com.myAllVideoBrowser.util.AppLogger
+import okhttp3.Request
 
 val injectJsInterceptor = """
         (function() {
@@ -172,6 +176,105 @@ class CustomWebViewClient(
     // error page, silently retry once with "https://" before giving up.
     private val cleartextUpgradedUrls: MutableSet<String> = mutableSetOf()
 
+    // ---- video/audio asset pairing (X/Twitter etc: separate HLS renditions
+    // with no master playlist linking them) ----
+    //
+    // IMPORTANT: this MUST be the only place that calls
+    // videoDetectionModel.verifyLinkStatus() for m3u8/mpd URLs. Both the
+    // network sniffer below (shouldInterceptRequest) and the JS-based media
+    // scanner/site rules (routed here via reportDiscoveredMediaUrl from
+    // WebTabFragment) can discover the SAME video-only rendition. If each
+    // path called verifyLinkStatus independently, whichever fired first would
+    // "win" and get recorded with no paired audio, and the later, correctly
+    // paired report would just be deduped as a repeat - which is exactly why
+    // pairing wasn't taking effect even though the pairing code itself was
+    // correct. Funneling both paths through one bucket/debounce mechanism
+    // fixes that race.
+    private data class MediaAssetBucket(
+        val videoRequests: MutableMap<String, Request> = mutableMapOf(),
+        var audioUrl: String? = null,
+        var isM3u8: Boolean = false,
+        var isMpd: Boolean = false,
+        var scheduled: Boolean = false
+    )
+
+    private val mediaAssetBuckets = mutableMapOf<String, MediaAssetBucket>()
+    private val mediaAssetHandler = Handler(Looper.getMainLooper())
+
+    private fun extractMediaAssetId(url: String): String? {
+        // Numeric asset id shared by every rendition (video and audio) of
+        // one piece of media on Twitter/X's video CDN, e.g.
+        // https://video.twimg.com/amplify_video/2069647202620731392/pl/avc1/582000/xxxx.m3u8
+        // https://video.twimg.com/amplify_video/2069647202620731392/pl/mp4a/128000/xxxx.m3u8
+        return Regex("/(?:amplify_video|ext_tw_video|tweet_video|vid)/(\\d+)/")
+            .find(url)?.groupValues?.get(1)
+    }
+
+    private fun buildRequestFromCookies(url: String): Request {
+        val cookies = CookieManager.getInstance().getCookie(url)
+        val builder = Request.Builder().url(url)
+        if (!cookies.isNullOrEmpty()) {
+            builder.header("Cookie", cookies)
+        }
+        return builder.build()
+    }
+
+    /**
+     * Single entry point for reporting a discovered m3u8/mpd URL, from
+     * EITHER the network sniffer or the JS media scanner/site rules. Buffers
+     * renditions of the same asset briefly so a video-only rendition can be
+     * paired with its sibling audio-only rendition regardless of which path
+     * or order they're discovered in, then forwards to videoDetectionModel.
+     *
+     * @param prebuiltRequest pass the real WebResourceRequest-derived
+     *   Request when available (network path - has accurate headers already
+     *   captured by the browser); leave null to build one from CookieManager
+     *   (JS-scanner path, which only ever has a bare URL string).
+     */
+    fun reportDiscoveredMediaUrl(
+        url: String, isM3u8: Boolean, isMpd: Boolean, prebuiltRequest: Request? = null
+    ) {
+        val isAudioOnlyRendition = url.contains("/mp4a/")
+        val assetId = extractMediaAssetId(url)
+        if (assetId == null) {
+            if (!isAudioOnlyRendition) {
+                val request = prebuiltRequest ?: buildRequestFromCookies(url)
+                videoDetectionModel.verifyLinkStatus(
+                    request, tabViewModel.currentTitle.get(), isM3u8, isMpd, null
+                )
+            }
+            return
+        }
+
+        val bucket = mediaAssetBuckets.getOrPut(assetId) { MediaAssetBucket() }
+        bucket.isM3u8 = bucket.isM3u8 || isM3u8
+        bucket.isMpd = bucket.isMpd || isMpd
+        if (isAudioOnlyRendition) {
+            bucket.audioUrl = url
+        } else {
+            bucket.videoRequests[url] = prebuiltRequest ?: buildRequestFromCookies(url)
+        }
+
+        if (bucket.scheduled) return
+        bucket.scheduled = true
+        // Small debounce: the network sniffer and the JS scanner can report
+        // sibling renditions moments apart in either order - wait briefly so
+        // both have a chance to arrive before finalizing the pairing.
+        mediaAssetHandler.postDelayed({
+            val finalBucket = mediaAssetBuckets.remove(assetId) ?: return@postDelayed
+            AppLogger.d(
+                "MediaAssetPairing: asset $assetId -> ${finalBucket.videoRequests.size} video rendition(s), " +
+                        "audio=${finalBucket.audioUrl}"
+            )
+            finalBucket.videoRequests.forEach { (_, req) ->
+                videoDetectionModel.verifyLinkStatus(
+                    req, tabViewModel.currentTitle.get(), finalBucket.isM3u8, finalBucket.isMpd,
+                    finalBucket.audioUrl
+                )
+            }
+        }, 600)
+    }
+
     companion object {
         fun emptyResponse(): WebResourceResponse {
             return WebResourceResponse(
@@ -279,9 +382,7 @@ class CustomWebViewClient(
                     val isMpd = ContentType.MPD == contentType || url.contains(".mpd")
 
                     if (requestWithCookies != null && isCheckM3u8) {
-                        videoDetectionModel.verifyLinkStatus(
-                            requestWithCookies, tabViewModel.currentTitle.get(), isM3u8, isMpd
-                        )
+                        reportDiscoveredMediaUrl(url, isM3u8, isMpd, requestWithCookies)
                     }
                     if (isInterruptIntreceptedResources) {
                         return emptyResponse()
