@@ -1,0 +1,129 @@
+<?xml version="1.0" encoding="utf-8"?>
+<layout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    xmlns:tools="http://schemas.android.com/tools"
+    tools:context=".ui.main.home.browser.homeTab.BrowserHomeFragment">
+
+    <data>
+
+        <import type="android.view.View" />
+
+        <variable
+            name="browserMenuListener"
+            type="com.myAllVideoBrowser.ui.main.home.browser.BrowserListener" />
+
+        <variable
+            name="viewModel"
+            type="com.myAllVideoBrowser.ui.main.home.browser.homeTab.BrowserHomeViewModel" />
+
+        <variable
+            name="mainVModel"
+            type="com.myAllVideoBrowser.ui.main.home.MainViewModel" />
+    </data>
+
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:gravity="center"
+        android:orientation="vertical">
+
+        <androidx.constraintlayout.widget.ConstraintLayout
+            android:layout_width="match_parent"
+            android:layout_height="0dp"
+            android:layout_weight="1">
+
+            <com.google.android.material.appbar.AppBarLayout
+                android:id="@+id/appBarLayout"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:background="?attr/colorSurfaceContainer"
+                app:elevation="0dp"
+                app:layout_constraintEnd_toEndOf="parent"
+                app:layout_constraintStart_toStartOf="parent"
+                app:layout_constraintTop_toTopOf="parent">
+
+                <com.google.android.material.appbar.MaterialToolbar
+                    android:id="@+id/materialToolbar"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    app:contentInsetStart="0dp">
+
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/browser_home_menu_button"
+                        style="@style/Widget.Material3.Button.IconButton"
+                        android:layout_width="48dp"
+                        android:layout_height="48dp"
+                        android:layout_gravity="end"
+                        android:layout_marginEnd="8dp"
+                        android:contentDescription="@string/menu"
+                        android:onClick="@{() -> browserMenuListener.onBrowserMenuClicked()}"
+                        app:icon="@drawable/ic_more_24dp"
+                        app:iconTint="?attr/colorOnSurface" />
+
+                </com.google.android.material.appbar.MaterialToolbar>
+
+            </com.google.android.material.appbar.AppBarLayout>
+
+
+            <com.google.android.material.textfield.MaterialAutoCompleteTextView
+                android:id="@+id/home_et_search"
+                android:layout_width="0dp"
+                android:layout_height="56dp"
+                android:layout_marginStart="24dp"
+                android:layout_marginEnd="24dp"
+                android:background="@drawable/round_corner"
+                android:drawableStart="@drawable/search_24px"
+                android:drawablePadding="16dp"
+                android:drawableTint="?attr/colorOnSurfaceVariant"
+                android:hint="@string/browser_search_hint"
+                android:paddingStart="20dp"
+                android:paddingEnd="20dp"
+                android:singleLine="true"
+                android:textColor="?attr/colorOnSurface"
+                android:textColorHint="?attr/colorOnSurfaceVariant"
+                android:textSize="@dimen/text_medium"
+                android:focusable="@{viewModel.isSearchInputFocused}"
+                android:focusableInTouchMode="@{viewModel.isSearchInputFocused}"
+                android:onClick="@{() -> viewModel.changeSearchFocus(true)}"
+                android:text="@{viewModel.searchTextInput}"
+                app:items="@{viewModel.listSuggestions}"
+                app:layout_constraintBottom_toTopOf="@+id/go_button"
+                app:layout_constraintEnd_toEndOf="parent"
+                app:layout_constraintStart_toStartOf="parent"
+                app:layout_constraintTop_toBottomOf="@+id/appBarLayout"
+                app:layout_constraintVertical_chainStyle="packed"
+                app:layout_constraintWidth_max="500dp" />
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/go_button"
+                style="@style/Widget.Material3.Button.TonalButton"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="24dp"
+                android:minWidth="120dp"
+                android:text="@string/go"
+                app:layout_constraintBottom_toBottomOf="parent"
+                app:layout_constraintEnd_toEndOf="parent"
+                app:layout_constraintStart_toStartOf="parent"
+                app:layout_constraintTop_toBottomOf="@+id/home_et_search" />
+
+        </androidx.constraintlayout.widget.ConstraintLayout>
+
+        <GridView
+            android:id="@+id/top_pages_grid"
+            android:layout_width="match_parent"
+            android:layout_height="0dp"
+            android:layout_weight="1"
+            android:clipToPadding="false"
+            android:gravity="center"
+            android:horizontalSpacing="8dp"
+            android:numColumns="4"
+            android:padding="16dp"
+            android:verticalSpacing="16dp"
+            android:contentDescription="@string/bookmarks_list"
+            app:items="@{mainVModel.bookmarksList}" />
+
+    </LinearLayout>
+
+</layout>

@@ -1,0 +1,75 @@
+<?xml version="1.0" encoding="utf-8"?>
+<layout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    xmlns:tools="http://schemas.android.com/tools">
+
+    <data>
+
+        <import type="android.view.View" />
+
+        <variable
+            name="listener"
+            type="com.myAllVideoBrowser.ui.component.adapter.CandidateFormatListener" />
+
+        <variable
+            name="download_candidate"
+            type="String" />
+
+        <variable
+            name="is_candidate_selected"
+            type="Boolean" />
+
+        <variable
+            name="videoInfo"
+            type="com.myAllVideoBrowser.data.local.room.entity.VideoInfo" />
+
+    </data>
+
+    <com.google.android.material.card.MaterialCardView
+        android:id="@+id/card_item"
+        style="?attr/materialCardViewElevatedStyle"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_margin="6dp"
+        android:checkable="true"
+        android:checked="@{is_candidate_selected}"
+        android:onClick="@{() -> listener.onSelectFormat(videoInfo, download_candidate)}"
+        android:onLongClick="@{() -> listener.onFormatUrlShare(videoInfo, download_candidate)}"
+        android:contentDescription="@{download_candidate}"
+        app:cardBackgroundColor="?attr/colorSurfaceContainerLow"
+        app:cardCornerRadius="16dp"
+        app:checkedIconTint="?attr/colorPrimary"
+        app:strokeColor="?attr/colorOutlineVariant"
+        app:cardStrokeWidth="@{is_candidate_selected ? @dimen/stroke_normal : @dimen/stroke_small}">
+
+        <LinearLayout
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:gravity="center"
+            android:minWidth="80dp"
+            android:orientation="vertical"
+            android:padding="12dp"
+            android:importantForAccessibility="no">
+
+            <com.google.android.material.textview.MaterialTextView
+                android:id="@+id/tv_title"
+                style="@style/TextAppearance.Material3.TitleMedium"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:duplicateParentState="true"
+                android:textColor="?attr/colorOnSurface"
+                tools:text="1080P" />
+
+            <com.google.android.material.textview.MaterialTextView
+                android:id="@+id/tv_data"
+                style="@style/TextAppearance.Material3.BodySmall"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="4dp"
+                android:duplicateParentState="true"
+                android:textColor="?attr/colorOnSurfaceVariant"
+                tools:text="vcodec: mp4\n12.5 MB" />
+        </LinearLayout>
+
+    </com.google.android.material.card.MaterialCardView>
+</layout>

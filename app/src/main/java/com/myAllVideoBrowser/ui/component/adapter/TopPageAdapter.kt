@@ -1,0 +1,85 @@
+package com.myAllVideoBrowser.ui.component.adapter
+
+import android.content.Context
+import android.graphics.PorterDuff
+import android.view.LayoutInflater
+import android.view.View
+import android.view.ViewGroup
+import android.widget.ArrayAdapter
+import androidx.appcompat.content.res.AppCompatResources
+import androidx.databinding.DataBindingUtil
+import androidx.recyclerview.widget.RecyclerView
+import com.bumptech.glide.Glide
+import com.google.android.material.color.MaterialColors
+import com.myAllVideoBrowser.R
+import com.myAllVideoBrowser.data.local.room.entity.PageInfo
+import com.myAllVideoBrowser.databinding.ItemTopPageBinding
+import com.myAllVideoBrowser.util.ContextUtils
+
+class TopPageAdapter(
+    context: Context,
+    private var pageInfos: List<PageInfo>,
+    private val itemListener: TopPagesListener
+) : ArrayAdapter<TopPageAdapter.TopPageViewHolder>(context, R.layout.item_top_page) {
+    override fun getView(position: Int, view: View?, parent: ViewGroup): View {
+        val binding = if (view == null) {
+            val inflater = LayoutInflater.from(parent.context)
+            ItemTopPageBinding.inflate(inflater, parent, false)
+        } else {
+            DataBindingUtil.getBinding(view)
+        }
+
+        with(binding) {
+            val page = pageInfos[position]
+            this?.pageInfo = page
+            this?.listener = itemListener
+            
+            val placeholder = AppCompatResources.getDrawable(
+                context, R.drawable.ic_browser
+            )?.apply {
+                setColorFilter(
+                    MaterialColors.getColor(
+                        context,
+                        com.google.android.material.R.attr.colorOnSurfaceVariant,
+                        android.graphics.Color.GRAY
+                    ),
+                    PorterDuff.Mode.SRC_IN
+                )
+            }
+
+            this?.imgIcon?.let { imageView ->
+                Glide.with(imageView.context)
+                    .load(page.favicon)
+                    .placeholder(placeholder)
+                    .error(placeholder)
+                    .circleCrop()
+                    .into(imageView)
+            }
+
+            this?.executePendingBindings()
+        }
+
+        return binding!!.root
+    }
+
+    override fun getItemId(position: Int) = try {
+        pageInfos[position].hashCode().toLong()
+    } catch (e: Throwable) {
+        0
+    }
+
+    override fun getCount(): Int {
+        return pageInfos.size
+    }
+
+    class TopPageViewHolder(val binding: ItemTopPageBinding) : RecyclerView.ViewHolder(binding.root)
+
+    fun setData(pageInfos: List<PageInfo>) {
+        this.pageInfos = pageInfos
+        notifyDataSetChanged()
+    }
+
+    interface TopPagesListener {
+        fun onItemClicked(pageInfo: PageInfo)
+    }
+}
