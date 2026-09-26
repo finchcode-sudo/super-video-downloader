@@ -24,7 +24,7 @@ import androidx.media3.datasource.DefaultDataSource
 import androidx.media3.datasource.okhttp.OkHttpDataSource
 import androidx.media3.exoplayer.DefaultLoadControl
 import androidx.media3.exoplayer.DefaultRenderersFactory
-import androidx.media3.exoplayer.DefaultRenderersFactory.EXTENSION_RENDERER_MODE_PREFER
+import androidx.media3.exoplayer.DefaultRenderersFactory.EXTENSION_RENDERER_MODE_OFF
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.RenderersFactory
 import androidx.media3.exoplayer.SeekParameters
@@ -262,8 +262,16 @@ class VideoPlayerFragment : BaseFragment() {
     }
 
     private fun createRenderFactory(): RenderersFactory {
+        // EXTENSION_RENDERER_MODE_OFF (the default): use the platform's
+        // hardware decoders only, exactly like the system/other video players
+        // do. The previous EXTENSION_RENDERER_MODE_PREFER asked media3 to
+        // prefer FFmpeg/AV1 *extension* renderers - but this project links no
+        // such extension (there is no media3-decoder-ffmpeg/-av1 dependency),
+        // so the renderer list ended up ordered/prioritised wrongly, which is
+        // what produced the "audio plays, picture lags behind" symptom on
+        // downloaded files.
         return DefaultRenderersFactory(requireContext().applicationContext)
-            .setExtensionRendererMode(EXTENSION_RENDERER_MODE_PREFER)
+            .setExtensionRendererMode(EXTENSION_RENDERER_MODE_OFF)
     }
 
     private fun createMediaFactory(
