@@ -667,6 +667,13 @@ class MpdDownloader(
         audioCodec: String? = null
     ) {
         arguments.apply {
+            // Continuous timestamp timeline across concatenated fragments:
+            // each HLS/DASH segment carries its own PTS/DTS base, so a plain
+            // `-c copy` merge leaves clock discontinuities at segment
+            // boundaries - the player then plays audio while the picture
+            // stays frozen until video catches up.
+            add("-fflags"); add("+genpts")
+            add("-avoid_negative_ts"); add("make_zero")
             if (isAudioOnlyExtract) {
                 add("-vn")
                 if (hasAudio && hasVideo) {
