@@ -22,6 +22,7 @@ import androidx.media3.common.util.UnstableApi
 import androidx.media3.datasource.DataSource
 import androidx.media3.datasource.DefaultDataSource
 import androidx.media3.datasource.okhttp.OkHttpDataSource
+import androidx.media3.exoplayer.DefaultLoadControl
 import androidx.media3.exoplayer.DefaultRenderersFactory
 import androidx.media3.exoplayer.DefaultRenderersFactory.EXTENSION_RENDERER_MODE_PREFER
 import androidx.media3.exoplayer.ExoPlayer
@@ -140,12 +141,25 @@ class VideoPlayerFragment : BaseFragment() {
         player = ExoPlayer.Builder(requireContext())
             .setRenderersFactory(createRenderFactory())
             .setMediaSourceFactory(mediaFactory)
+            // Larger decode buffers keep the video renderer from lagging behind
+            // audio while it decodes forward from a keyframe - the classic
+            // "audio starts, picture is frozen" symptom on remuxed HLS files.
+            .setLoadControl(
+                DefaultLoadControl.Builder()
+                    .setBufferDurationsMs(
+                        /* minBufferMs = */ 15_000,
+                        /* maxBufferMs = */ 120_000,
+                        /* bufferForPlaybackMs = */ 1_500,
+                        /* bufferForPlaybackAfterRebufferMs = */ 3_000
+                    )
+                    .build()
+            )
             .build()
-        // Seek to the nearest keyframe instead of decoding forward to the
-        // exact frame. Downloaded/remuxed files often have sparse keyframes,
-        // so exact seeking is slow and, combined with rapid seeks while
-        // dragging, causes visible stutter.
-        player.setSeekParameters(SeekParameters.CLOSEST_SYNC)
+        // EXACT (not CLOSEST_SYNC): hunts for the precise target frame on both
+        // tracks so audio and video land on the same position. CLOSEST_SYNC
+        // snapped only to the video keyframe, which - on TS-concatenated
+        // downloads with sparse keyframes - left audio ahead of the picture.
+        player.setSeekParameters(SeekParameters.EXACT)
 
         dataBinding.apply {
             val currentBinding = this
