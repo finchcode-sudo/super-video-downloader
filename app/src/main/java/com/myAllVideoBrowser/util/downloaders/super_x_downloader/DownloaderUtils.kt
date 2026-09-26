@@ -98,6 +98,13 @@ object DownloaderUtils {
             val hasAudio = !audioSegments.isNullOrEmpty()
 
             add("-y") // Overwrite output file
+            // Regenerate a continuous timestamp timeline across the concatenated
+            // fragments. HLS segments each carry their own PTS/DTS base, so a
+            // plain `-c copy` concat leaves discontinuities at every segment
+            // boundary - the player then sees audio and video with mismatched
+            // clocks and shows a frozen picture while audio plays.
+            add("-fflags"); add("+genpts")
+            add("-avoid_negative_ts"); add("make_zero")
 
             if (isAudioOnlyExtract) {
                 add("-vn")
