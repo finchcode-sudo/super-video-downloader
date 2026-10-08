@@ -1,0 +1,225 @@
+package com.myAllVideoBrowser
+
+import android.os.Build
+import android.webkit.CookieManager
+import androidx.webkit.WebViewCompat
+import androidx.work.Configuration
+import androidx.work.ExistingWorkPolicy
+import androidx.work.OneTimeWorkRequestBuilder
+import androidx.work.OutOfQuotaPolicy
+import androidx.work.WorkManager
+import com.myAllVideoBrowser.data.repository.AdBlockRepository
+import com.myAllVideoBrowser.di.component.DaggerAppComponent
+import com.myAllVideoBrowser.ui.main.home.browser.adblocker.AdBlockEngine
+import com.myAllVideoBrowser.util.AppLogger
+import com.myAllVideoBrowser.util.ContextUtils
+import com.myAllVideoBrowser.util.FileUtil
+import com.myAllVideoBrowser.util.SharedPrefHelper
+import com.myAllVideoBrowser.util.downloaders.generic_downloader.DaggerWorkerFactory
+import com.myAllVideoBrowser.util.proxy_utils.ProxyWorker
+import com.myAllVideoBrowser.util.proxy_utils.proxy_manager.ProxyManager
+import com.myAllVideoBrowser.v2ray.V2Ray
+import com.tencent.mmkv.MMKV
+import com.yausername.ffmpeg.FFmpeg
+import com.yausername.youtubedl_android.YoutubeDL
+import com.yausername.youtubedl_android.YoutubeDLException
+import dagger.android.AndroidInjector
+import dagger.android.DaggerApplication
+import io.reactivex.rxjava3.plugins.RxJavaPlugins
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import okhttp3.OkHttp
+import org.conscrypt.Conscrypt
+import java.io.File
+import java.security.Security
+import javax.inject.Inject
+
+
+open class DLApplication : DaggerApplication(), Configuration.Provider {
+    companion object {
+        const val DEBUG_TAG: String = "YOUTUBE_DL_DEBUG_TAG"
+    }
+
+    @Inject
+    lateinit var workerFactory: DaggerWorkerFactory
+
+    @Inject
+    lateinit var sharedPrefHelper: SharedPrefHelper
+
+    @Inject
+    lateinit var fileUtil: FileUtil
+
+    @Inject
+    lateinit var adBlockRepository: AdBlockRepository
+
+    @Inject
+    lateinit var adBlockEngine: AdBlockEngine
+
+    private var isYoutubeDLInitialized = false
+
+    var isWebViewAvailable = true
+        private set
+
+    override val workManagerConfiguration: Configuration
+        get() = Configuration.Builder()
+            .setWorkerFactory(workerFactory)
+            .build()
+
+    private lateinit var appComponent: AndroidInjector<DLApplication>
+
+    override fun applicationInjector(): AndroidInjector<out DaggerApplication> {
+        if (!::appComponent.isInitialized) {
+            ContextUtils.initApplicationContext(this)
+            appComponent = DaggerAppComponent.builder()
+                .application(this)
+                .build()
+        }
+
+        return appComponent
+    }
+
+    override fun onCreate() {
+        super.onCreate()
+
+        checkWebViewAvailability()
+
+        if (ProxyManager.isProxySupported()) {
+            V2Ray.init(this)
+        }
+
+        try {
+            OkHttp.initialize(this)
+        } catch (e: Throwable) {
+            AppLogger.e("Failed to initialize OkHttp: ${e.message}")
+        }
+
+        initializeFileUtils()
+
+        val file: File = fileUtil.folderDir
+
+        MMKV.initialize(this)
+
+        // this should fix native ssl crash on old devices
+        try {
+            val provider = Conscrypt.newProvider()
+            Security.insertProviderAt(provider, 1)
+            AppLogger.i("Conscrypt provider initialized successfully")
+        } catch (e: Throwable) {
+            AppLogger.e("Failed to insert Conscrypt provider: ${e.message}")
+        }
+
+        RxJavaPlugins.setErrorHandler { error: Throwable? ->
+            AppLogger.e("RxJavaError unhandled $error")
+        }
+
+        CoroutineScope(Dispatchers.IO).launch {
+            if (!file.exists()) {
+                file.mkdirs()
+            }
+
+            initializeYoutubeDl()
+            if (isYoutubeDLInitialized) {
+                updateYoutubeDL()
+            }
+
+            startProxyWorker()
+
+            if (isMainProcess()) {
+                adblockInit()
+            }
+        }
+    }
+
+    private fun checkWebViewAvailability() {
+        isWebViewAvailable = try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                WebViewCompat.getCurrentWebViewPackage(applicationContext) != null
+            } else {
+                // Instantiating a CookieManager is a relatively lightweight way to check for WebView provider
+                CookieManager.getInstance()
+                true
+            }
+        } catch (e: Throwable) {
+            AppLogger.e("WebView check failed: ${e.message}")
+            false
+        }
+    }
+
+    suspend fun adblockInit() {
+        adBlockRepository.checkAndPrepopulateDefaults()
+        val isAdOn = sharedPrefHelper.getIsAdBlockOn()
+        if (isAdOn) {
+            adBlockRepository.downloadEnabledLists()
+            adBlockEngine.loadRules()
+        }
+    }
+
+    private fun isMainProcess(): Boolean {
+        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+            packageName == getProcessName()
+        } else {
+            true
+        }
+    }
+
+    private fun initializeFileUtils() {
+        val isExternal = sharedPrefHelper.getIsExternalUse()
+        val isAppDir = sharedPrefHelper.getIsAppDirUse()
+
+        FileUtil.IS_EXTERNAL_STORAGE_USE = isExternal
+        FileUtil.IS_APP_DATA_DIR_USE = isAppDir
+        FileUtil.INITIIALIZED = true
+    }
+
+    private fun initializeYoutubeDl() {
+        try {
+            YoutubeDL.getInstance().init(this)
+            FFmpeg.getInstance().init(this)
+            isYoutubeDLInitialized = true
+            AppLogger.i("YoutubeDL and FFmpeg initialized successfully")
+        } catch (e: YoutubeDLException) {
+            isYoutubeDLInitialized = false
+            AppLogger.e("failed to initialize youtubedl-android: ${e.message}")
+        } catch (e: Exception) {
+            isYoutubeDLInitialized = false
+            AppLogger.e("unexpected error during youtubedl-android init: ${e.message}")
+        }
+    }
+
+    private fun updateYoutubeDL() {
+        if (!isYoutubeDLInitialized) {
+            AppLogger.w("Skipping updateYoutubeDL: instance not initialized")
+            return
+        }
+        try {
+            val status = YoutubeDL.getInstance()
+                .updateYoutubeDL(this, YoutubeDL.UpdateChannel._MASTER)
+            AppLogger.d("UPDATE_STATUS MASTER: $status")
+        } catch (e: Throwable) {
+            AppLogger.e("Failed to update YoutubeDL: ${e.message}")
+        }
+    }
+
+    fun startProxyWorker() {
+        val isProxyOn = sharedPrefHelper.getIsProxyOn()
+        val isDohOn = sharedPrefHelper.getIsDohOn()
+        if (!(isProxyOn || isDohOn) || !ProxyManager.isProxySupported()) {
+            AppLogger.i("Proxy not enabled in settings, skipping WorkManager enqueue")
+            WorkManager.getInstance(this).cancelUniqueWork(ProxyWorker.WORK_NAME)
+            return
+        }
+
+        AppLogger.i("Enqueuing ProxyWorker...")
+
+        val workRequest = OneTimeWorkRequestBuilder<ProxyWorker>()
+            .setExpedited(OutOfQuotaPolicy.RUN_AS_NON_EXPEDITED_WORK_REQUEST)
+            .build()
+
+        WorkManager.getInstance(this).enqueueUniqueWork(
+            ProxyWorker.WORK_NAME,
+            ExistingWorkPolicy.REPLACE,
+            workRequest
+        )
+    }
+}
