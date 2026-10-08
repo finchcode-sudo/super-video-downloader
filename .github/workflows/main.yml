@@ -113,6 +113,25 @@ jobs:
             NDK_OUT="$GITHUB_WORKSPACE/mpv-native/src/obj"
           ls -la app/src/main/jniLibs/arm64-v8a
 
+      - name: Strip mpv native libraries (shrink APK size)
+        run: |
+          # app/build.gradle.kts 里有 keepDebugSymbols.add("**/*.so"), 那是专门为了
+          # youtubedl-android 把 python/ffmpeg 可执行文件伪装成 .so 保留的, 不能动它,
+          # 不然下载功能可能出问题。所以在这里提前把咱们自己编的 mpv/ffmpeg 库瘦身,
+          # 等 Gradle 打包的时候这些文件已经没有调试符号可保留了, 不受那条规则影响。
+          STRIP="$GITHUB_WORKSPACE/mpv-native/buildscripts/sdk/android-ndk-r30/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-strip"
+          DIR="app/src/main/jniLibs/arm64-v8a"
+          for so in libswresample.so libpostproc.so libavutil.so libavcodec.so \
+                    libavformat.so libswscale.so libavfilter.so libavdevice.so \
+                    libmpv.so libplayer.so; do
+            if [ -f "$DIR/$so" ]; then
+              echo "stripping $so: $(du -h "$DIR/$so" | cut -f1) -> "
+              "$STRIP" --strip-unneeded "$DIR/$so"
+              echo "  $(du -h "$DIR/$so" | cut -f1)"
+            fi
+          done
+          du -sh app/src/main/jniLibs/arm64-v8a
+
       - name: Build Debug APK (arm64-v8a only)
         run: ./gradlew assembleDebug -PABI_FILTERS=arm64-v8a --info
 
