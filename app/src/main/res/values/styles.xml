@@ -22,6 +22,13 @@
         <item name="android:windowLightStatusBar">true</item>
     </style>
 
+    <!-- 本地 mpv 播放器专用: 去掉系统自带的标题栏(ActionBar), 不然会把
+         咱们自己做的顶栏(字幕按钮/旋转按钮)顶下去或者和它重叠, 导致按钮看不到。 -->
+    <style name="AppTheme.NoActionBar" parent="AppTheme">
+        <item name="windowNoTitle">true</item>
+        <item name="windowActionBar">false</item>
+    </style>
+
     <style name="AppTheme.Launcher">
         <item name="android:windowNoTitle">true</item>
         <item name="android:windowActionBar">false</item>
