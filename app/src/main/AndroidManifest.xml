@@ -59,7 +59,7 @@
             android:name="com.myAllVideoBrowser.ui.main.localplayer.LocalMpvPlayerActivity"
             android:configChanges="keyboard|keyboardHidden|orientation|screenSize"
             android:hardwareAccelerated="true"
-            android:theme="@style/AppTheme" />
+            android:theme="@style/AppTheme.NoActionBar" />
 
         <service
             android:name="androidx.work.impl.foreground.SystemForegroundService"
