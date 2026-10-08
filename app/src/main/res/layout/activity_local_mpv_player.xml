@@ -9,81 +9,66 @@
         android:layout_width="match_parent"
         android:layout_height="match_parent">
 
-        <com.myAllVideoBrowser.ui.main.localplayer.LocalMpvView
+        <sushi.hardcore.droidfs.widgets.DroidfsMpvView
             android:id="@+id/video_player"
             android:layout_width="match_parent"
             android:layout_height="match_parent" />
 
     </FrameLayout>
 
-    <!-- paddingTop 的基础值由代码 applyWindowInsets() 动态补上状态栏高度,
-         这里只留基础 8dp, 不要写死 36dp, 否则会和状态栏高度叠加导致顶栏过高。 -->
     <RelativeLayout
         android:id="@+id/top_bar"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:layout_alignParentTop="true"
-        android:background="#66000000"
-        android:paddingTop="8dp"
+        android:background="@android:color/transparent"
+        android:paddingTop="36dp"
         android:paddingBottom="8dp"
-        android:layout_marginStart="20dp"
-        android:layout_marginEnd="20dp">
-
-        <!-- 右侧两个按钮放进一个横向 LinearLayout, 用 alignParentEnd 整体靠右。
-             不要用链式 layout_toStartOf(原写法: text->subtitle->rotate) 互相约束,
-             那条依赖链在 RelativeLayout 里会让 subtitle_button 缺少明确定位基准,
-             表现为按钮被推到屏幕外 / 不渲染。这里改成"一组靠右"的结构, 稳定。 -->
-        <LinearLayout
-            android:id="@+id/top_bar_actions"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_alignParentEnd="true"
-            android:layout_centerVertical="true"
-            android:orientation="horizontal">
-
-            <ImageButton
-                android:id="@+id/subtitle_button"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:background="?attr/selectableItemBackgroundBorderless"
-                android:padding="12dp"
-                android:src="@drawable/icon_subtitles"
-                app:tint="@color/neutralIconTint"/>
-
-            <ImageButton
-                android:id="@+id/rotate_button"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:background="?attr/selectableItemBackgroundBorderless"
-                android:padding="12dp"
-                android:src="@drawable/icon_screen_rotation"
-                app:tint="@color/neutralIconTint"/>
-
-        </LinearLayout>
+        android:layout_marginStart="20dp">
 
         <TextView
             android:id="@+id/text_file_name"
-            android:layout_width="wrap_content"
+            android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:singleLine="true"
             android:ellipsize="end"
-            android:textSize="16sp"
+            android:textSize="@dimen/title_file_name_text_size"
             android:textColor="@color/white"
             android:layout_alignParentStart="true"
-            android:layout_toStartOf="@id/top_bar_actions"
+            android:layout_toStartOf="@id/subtitle_button"
+            android:layout_centerVertical="true"/>
+
+        <ImageButton
+            android:id="@+id/subtitle_button"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:padding="12dp"
+            android:src="@drawable/icon_subtitles"
+            app:tint="@color/neutralIconTint"
+            android:layout_toStartOf="@id/rotate_button"
+            android:layout_centerVertical="true"/>
+
+        <ImageButton
+            android:id="@+id/rotate_button"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:padding="12dp"
+            android:src="@drawable/icon_screen_rotation"
+            app:tint="@color/neutralIconTint"
+            android:layout_alignParentEnd="true"
             android:layout_centerVertical="true"/>
 
     </RelativeLayout>
 
-    <!-- 和 DroidFS 播放器一样: 一排五个按钮(上一个/快退10/大播放/快进10/下一个) + 进度条。
-         paddingBottom 的基础值由代码 applyWindowInsets() 动态补上导航栏高度,
-         这里只留基础 12dp, 不要写死更多, 否则会和导航栏高度叠加。 -->
+    <!-- ExoPlayer 标准控制栏样式: 一排五个按钮(上一个/快退10/大播放/快进10/下一个) + 进度条 -->
     <LinearLayout
         android:id="@+id/bottom_bar"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:layout_alignParentBottom="true"
-        android:background="#99000000"
+        android:background="@android:color/transparent"
         android:orientation="vertical"
         android:paddingTop="4dp"
         android:paddingBottom="12dp">
@@ -185,7 +170,7 @@
 
     </LinearLayout>
 
-    <!-- 滑动快进时显示的当前位置和变化量, 和 DroidFS 播放器一样 -->
+    <!-- 滑动快进时显示的当前位置和变化量, 样式照抄 mpv-android 的 gestureTextView -->
     <TextView
         android:id="@+id/gesture_text"
         android:layout_width="match_parent"
