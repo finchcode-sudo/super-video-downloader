@@ -87,7 +87,6 @@ class VideoPlayerFragment : BaseFragment() {
     private var dragStartPositionMs = 0L
     private var lastDragSeekAtMs = 0L
     private var pendingDragTargetMs = 0L
-    private var areControlsShown = true
     private lateinit var gestureDetector: GestureDetector
 
     override fun onCreateView(
@@ -350,11 +349,14 @@ class VideoPlayerFragment : BaseFragment() {
                 override fun onDown(e: MotionEvent): Boolean = true
 
                 override fun onSingleTapConfirmed(e: MotionEvent): Boolean {
-                    areControlsShown = !areControlsShown
-                    if (areControlsShown) {
-                        dataBinding.videoView.showController()
-                    } else {
+                    // 不要用自己记的 areControlsShown 变量判断, 它会和控制器自动隐藏的
+                    // 真实状态不同步(控制器放几秒自己就隐藏了, 但这个变量没跟着变),
+                    // 导致隐藏之后第一次点击其实是在"再隐藏一次", 画面没反应, 要点第二下
+                    // 才真正显示出来。直接读控制器当前的真实可见状态来判断, 不会有这个问题。
+                    if (dataBinding.videoView.isControllerFullyVisible) {
                         dataBinding.videoView.hideController()
+                    } else {
+                        dataBinding.videoView.showController()
                     }
                     return true
                 }
