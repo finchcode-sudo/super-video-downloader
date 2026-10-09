@@ -1,0 +1,62 @@
+<?xml version="1.0" encoding="utf-8"?>
+<layout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto">
+
+    <data>
+        <variable
+            name="viewModel"
+            type="com.myAllVideoBrowser.ui.main.home.browser.BrowserViewModel" />
+    </data>
+
+    <com.myAllVideoBrowser.ui.component.widget.SafeDrawerLayout
+        android:id="@+id/drawer_layout"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent">
+
+        <com.myAllVideoBrowser.ui.main.home.browser.CustomViewPager2
+            android:id="@+id/view_pager"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:importantForAccessibility="no"
+            app:currentItem="@{viewModel.currentTab}"
+            app:items="@{viewModel.tabs}" />
+
+        <com.google.android.material.navigation.NavigationView
+            android:id="@+id/navigation_view"
+            android:layout_width="320dp"
+            android:layout_height="match_parent"
+            android:layout_gravity="start">
+
+            <LinearLayout
+                android:id="@+id/drawer_layout_content"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
+                android:orientation="vertical"
+                android:paddingTop="16dp">
+
+                <com.google.android.material.textview.MaterialTextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:paddingHorizontal="24dp"
+                    android:paddingVertical="16dp"
+                    android:text="@string/app_name"
+                    android:textColor="?attr/colorOnSurface"
+                    android:textSize="24sp"
+                    android:textStyle="bold" />
+
+                <androidx.recyclerview.widget.RecyclerView
+                    android:id="@+id/tabs_list"
+                    android:layout_width="match_parent"
+                    android:layout_height="match_parent"
+                    android:clipToPadding="false"
+                    android:paddingBottom="16dp"
+                    android:contentDescription="@string/tabs"
+                    app:items="@{viewModel.tabs}"
+                    app:selectedTab="@{viewModel.currentTab}" />
+
+            </LinearLayout>
+        </com.google.android.material.navigation.NavigationView>
+
+    </com.myAllVideoBrowser.ui.component.widget.SafeDrawerLayout>
+
+</layout>

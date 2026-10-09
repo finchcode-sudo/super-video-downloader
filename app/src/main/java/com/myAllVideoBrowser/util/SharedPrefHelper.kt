@@ -1,0 +1,586 @@
+package com.myAllVideoBrowser.util
+
+import android.content.Context
+import android.content.SharedPreferences
+import com.google.gson.Gson
+import com.myAllVideoBrowser.data.local.GeneratedProxyCreds
+import com.myAllVideoBrowser.data.local.model.Proxy
+import com.myAllVideoBrowser.ui.main.settings.SearchEngine
+import javax.inject.Inject
+import javax.inject.Singleton
+import androidx.core.content.edit
+
+@Singleton
+class SharedPrefHelper @Inject constructor(
+    private val context: Context,
+    private val appUtil: AppUtil
+) {
+    companion object {
+        const val PREF_KEY = "settings_prefs"
+        private const val IS_DESKTOP = "IS_DESKTOP"
+        private const val IS_FIND_BY_URL = "IS_FIND_BY_URL"
+        private const val IS_CHECK_EVERY_REQUEST = "IS_CHECK_EVERY_REQUEST"
+        private const val IS_PROXY_TURN_ON = "IS_PROXY_TURN_ON"
+        private const val IS_FIRST_START = "IS_FIRST_START"
+        private const val IS_SHOW_VIDEO_ALERT = "IS_SHOW_VIDEO_ALERT"
+        private const val IS_SHOW_VIDEO_ACTION_BUTTON = "IS_SHOW_VIDEO_ACTION_BUTTON"
+        private const val IS_EXTERNAL_USE = "IS_EXTERNAL_USE"
+        private const val IS_APP_DIR_USE = "IS_APP_DIR_USE"
+        private const val IS_DARK_MODE = "IS_DARK_MODE"
+        const val REGULAR_THREAD_COUNT = "REGULAR_THREAD_COUNT"
+        private const val M3U8_THREAD_COUNT = "M3U8_THREAD_COUNT"
+        private const val VIDEO_DETECTION_TRESHOLD = "VIDEO_DETECTION_TRESHOLD"
+        private const val IS_LOCK_PORTRAIT = "IS_LOCK_PORTRAIT"
+        private const val USER_PROXY_CHAIN = "USER_PROXY_CHAIN"
+        private const val IS_CHECK_EVERY_ON_M3U8 = "IS_CHECK_EVERY_ON_M3U8"
+        private const val IS_AUTO_THEME = "IS_AUTO_THEME"
+        private const val IS_CHECK_ON_AUDIO = "IS_CHECK_ON_AUDIO"
+        private const val IS_FORCE_STREAM_DOWNLOAD = "IS_FORCE_STREAM_DOWNLOAD"
+
+        private const val IS_FORCE_STREAM_DETECTION = "IS_FORCE_STREAM_DETECTION"
+
+        private const val IS_PROCESS_DOWNLOAD_FFMPEG = "IS_PROCESS_DOWNLOAD_FFMPEG"
+        private const val IS_PROCESS_ONLY_LIVE_DOWNLOAD_FFMPEG =
+            "IS_PROCESS_ONLY_LIVE_DOWNLOAD_FFMPEG"
+        private const val IS_INTERRUPT_INTERCEPTED_RESOURCES =
+            "IS_INTERRUPT_INTERCEPTED_RESOURCES"
+        private const val GENERATED_CREDENTIALS = "GENERATED_CREDENTIALS"
+        private const val CREDENTIALS_TIMESTAMP = "CREDENTIALS_TIMESTAMP"
+        private const val IS_DOH_ON = "IS_DOH_ON"
+        private const val SELECTED_DNS_PROVIDER = "SELECTED_DNS_PROVIDER"
+        private const val CUSTOM_DNS_URL = "CUSTOM_DNS_URL"
+        private const val IS_USE_LEGACY_M3U8_DETECTION = "IS_USE_LEGACY_M3U8_DETECTION"
+
+        private const val IS_ASK_REDIRECTION = "IS_ASK_REDIRECTION"
+        private const val MAX_SIMULTANEOUS_DOWNLOADS = "MAX_SIMULTANEOUS_DOWNLOADS"
+        private const val IS_ADBLOCK_ON = "IS_ADBLOCK_ON"
+        private const val IS_DOWNLOAD_SUBTITLES = "IS_DOWNLOAD_SUBTITLES"
+
+        private const val SELECTED_SEARCH_ENGINE_ID = "SELECTED_SEARCH_ENGINE_ID"
+
+        // ---- mpv playback settings (VideoPlayerFragment / CustomMPVView) ----
+        private const val MPV_PROFILE = "MPV_PROFILE"
+        private const val MPV_GPU_NEXT = "MPV_GPU_NEXT"
+        private const val MPV_USE_VULKAN = "MPV_USE_VULKAN"
+        private const val MPV_HWDEC_ENABLED = "MPV_HWDEC_ENABLED"
+        private const val MPV_PRECISE_SEEKING = "MPV_PRECISE_SEEKING"
+        private const val MPV_VOLUME_MAX = "MPV_VOLUME_MAX"
+        private const val MPV_REMEMBER_SPEED = "MPV_REMEMBER_SPEED"
+        private const val MPV_LAST_SPEED = "MPV_LAST_SPEED"
+        private const val MPV_SUB_AUTO_LOAD = "MPV_SUB_AUTO_LOAD"
+        private const val MPV_SUBTITLE_FONT_SIZE = "MPV_SUBTITLE_FONT_SIZE"
+        private const val MPV_SUB_ASS_OVERRIDE = "MPV_SUB_ASS_OVERRIDE"
+        private const val MPV_CACHE_SECS = "MPV_CACHE_SECS"
+        private const val MPV_HDR_TONE_MAPPING = "MPV_HDR_TONE_MAPPING"
+    }
+
+    private val gson = Gson()
+
+    private var sharedPreferences: SharedPreferences =
+        context.getSharedPreferences(PREF_KEY, Context.MODE_PRIVATE)
+
+    fun saveIsDesktop(isDesktop: Boolean) {
+        sharedPreferences.edit {
+            putBoolean(IS_DESKTOP, isDesktop)
+        }
+    }
+
+    fun getIsDesktop(): Boolean {
+        return sharedPreferences.getBoolean(IS_DESKTOP, false)
+    }
+
+    fun saveIsFindByUrl(isFind: Boolean) {
+        sharedPreferences.edit {
+            putBoolean(IS_FIND_BY_URL, isFind)
+        }
+    }
+
+    fun isFindVideoByUrl(): Boolean {
+        return sharedPreferences.getBoolean(IS_FIND_BY_URL, true)
+    }
+
+    fun saveIsCheck(isCheck: Boolean) {
+        sharedPreferences.edit {
+            putBoolean(IS_CHECK_EVERY_REQUEST, isCheck)
+        }
+    }
+
+    fun isCheckEveryRequestOnVideo(): Boolean {
+        return sharedPreferences.getBoolean(IS_CHECK_EVERY_REQUEST, true)
+    }
+
+    fun getIsProxyOn(): Boolean {
+        return sharedPreferences.getBoolean(IS_PROXY_TURN_ON, false)
+    }
+
+    fun setIsProxyOn(isTurnedOn: Boolean) {
+        sharedPreferences.edit {
+            putBoolean(IS_PROXY_TURN_ON, isTurnedOn)
+        }
+    }
+
+    fun getIsFirstStart(): Boolean {
+        return sharedPreferences.getBoolean(IS_FIRST_START, true)
+    }
+
+    fun setIsFirstStart(isFirstStart: Boolean) {
+        sharedPreferences.edit {
+            putBoolean(IS_FIRST_START, isFirstStart)
+        }
+    }
+
+    fun isShowVideoAlert(): Boolean {
+        return sharedPreferences.getBoolean(IS_SHOW_VIDEO_ALERT, true)
+    }
+
+    fun setIsShowVideoAlert(isShow: Boolean) {
+        sharedPreferences.edit {
+            putBoolean(IS_SHOW_VIDEO_ALERT, isShow)
+        }
+    }
+
+    fun isShowActionButton(): Boolean {
+        return sharedPreferences.getBoolean(IS_SHOW_VIDEO_ACTION_BUTTON, true)
+    }
+
+    fun setIsShowActionButton(isShow: Boolean) {
+        sharedPreferences.edit {
+            putBoolean(IS_SHOW_VIDEO_ACTION_BUTTON, isShow)
+        }
+    }
+
+    fun getIsExternalUse(): Boolean {
+        val defIsExternal = FileUtil.isExternalStorageWritable()
+
+        return sharedPreferences.getBoolean(IS_EXTERNAL_USE, defIsExternal)
+    }
+
+    fun setIsExternalUse(isExternalUse: Boolean) {
+        sharedPreferences.edit {
+            putBoolean(IS_EXTERNAL_USE, isExternalUse)
+        }
+    }
+
+    fun getIsAppDirUse(): Boolean {
+        return sharedPreferences.getBoolean(IS_APP_DIR_USE, false)
+    }
+
+    fun setIsAppDirUse(isAppDirUse: Boolean) {
+        sharedPreferences.edit {
+            putBoolean(IS_APP_DIR_USE, isAppDirUse)
+        }
+    }
+
+    fun isDarkMode(): Boolean {
+        return sharedPreferences.getBoolean(
+            IS_DARK_MODE,
+            true
+        )
+    }
+
+    fun setIsDarkMode(isDarkMode: Boolean) {
+        sharedPreferences.edit {
+            putBoolean(IS_DARK_MODE, isDarkMode)
+        }
+    }
+
+    fun getRegularDownloaderThreadCount(): Int {
+        return maxOf(1, sharedPreferences.getInt(REGULAR_THREAD_COUNT, 1))
+    }
+
+    fun setRegularDownloaderThreadCount(count: Int) {
+        sharedPreferences.edit {
+            putInt(REGULAR_THREAD_COUNT, count)
+        }
+    }
+
+    fun getM3u8DownloaderThreadCount(): Int {
+        return maxOf(1, sharedPreferences.getInt(M3U8_THREAD_COUNT, 3)) // means 4
+    }
+
+    fun setM3u8DownloaderThreadCount(count: Int) {
+        sharedPreferences.edit {
+            putInt(M3U8_THREAD_COUNT, count)
+        }
+    }
+
+    fun getVideoDetectionTreshold(): Int {
+        return sharedPreferences.getInt(VIDEO_DETECTION_TRESHOLD, 5 * 1024 * 1024)
+    }
+
+    fun setVideoDetectionTreshold(count: Int) {
+        sharedPreferences.edit {
+            putInt(VIDEO_DETECTION_TRESHOLD, count)
+        }
+    }
+
+    fun getIsLockPortrait(): Boolean {
+        return sharedPreferences.getBoolean(IS_LOCK_PORTRAIT, true)
+    }
+
+    fun setIsLockPortrait(isLock: Boolean) {
+        sharedPreferences.edit {
+            putBoolean(IS_LOCK_PORTRAIT, isLock)
+        }
+    }
+
+    fun getUserProxyChain(): Array<Proxy> {
+        val proxyString = sharedPreferences.getString(USER_PROXY_CHAIN, null)
+        if (proxyString != null) {
+            try {
+                val proxies = gson.fromJson(proxyString, Array<Proxy>::class.java)
+                return proxies
+            } catch (e: Throwable) {
+                e.printStackTrace()
+            }
+        }
+        return arrayOf(Proxy.noProxy())
+    }
+
+    fun saveUserProxyChain(proxies: Array<Proxy>) {
+        val proxyString = gson.toJson(proxies)
+        sharedPreferences.edit {
+            putString(USER_PROXY_CHAIN, proxyString)
+        }
+    }
+
+
+    fun getIsCheckEveryOnM3u8(): Boolean {
+        return sharedPreferences.getBoolean(IS_CHECK_EVERY_ON_M3U8, true)
+    }
+
+    fun saveIsCheckEveryOnM3u8(isCheck: Boolean) {
+        sharedPreferences.edit {
+            putBoolean(IS_CHECK_EVERY_ON_M3U8, isCheck)
+        }
+    }
+
+    fun getIsCheckOnAudio(): Boolean {
+        return sharedPreferences.getBoolean(IS_CHECK_ON_AUDIO, false)
+    }
+
+    fun saveIsCheckOnAudio(isCheck: Boolean) {
+        sharedPreferences.edit {
+            putBoolean(IS_CHECK_ON_AUDIO, isCheck)
+        }
+    }
+
+    fun getIsForceStreamDownload(): Boolean {
+        return sharedPreferences.getBoolean(IS_FORCE_STREAM_DOWNLOAD, false)
+    }
+
+    fun setIsForceStreamDownload(isForce: Boolean) {
+        sharedPreferences.edit {
+            putBoolean(IS_FORCE_STREAM_DOWNLOAD, isForce)
+        }
+    }
+
+    fun getIsForceStreamDetection(): Boolean {
+        return sharedPreferences.getBoolean(IS_FORCE_STREAM_DETECTION, false)
+    }
+
+    fun setIsForceStreamDetection(isForce: Boolean) {
+        sharedPreferences.edit {
+            putBoolean(IS_FORCE_STREAM_DETECTION, isForce)
+        }
+    }
+
+    fun getIsProcessDownloadFfmpeg(): Boolean {
+        return sharedPreferences.getBoolean(IS_PROCESS_DOWNLOAD_FFMPEG, false)
+    }
+
+    fun setIsProcessDownloadFfmpeg(isProcessFfmpeg: Boolean) {
+        sharedPreferences.edit {
+            putBoolean(IS_PROCESS_DOWNLOAD_FFMPEG, isProcessFfmpeg)
+        }
+    }
+
+    fun getIsProcessOnlyLiveDownloadFfmpeg(): Boolean {
+        return sharedPreferences.getBoolean(IS_PROCESS_ONLY_LIVE_DOWNLOAD_FFMPEG, true)
+    }
+
+    fun setIsProcessOnlyLiveDownloadFfmpeg(isProcessFfmpeg: Boolean) {
+        sharedPreferences.edit {
+            putBoolean(IS_PROCESS_ONLY_LIVE_DOWNLOAD_FFMPEG, isProcessFfmpeg)
+        }
+    }
+
+    fun setIsInterruptInterceptedResources(isTurnedOn: Boolean) {
+        sharedPreferences.edit {
+            putBoolean(IS_INTERRUPT_INTERCEPTED_RESOURCES, isTurnedOn)
+        }
+    }
+
+    fun getIsInterruptInterceptedResources(): Boolean {
+        return sharedPreferences.getBoolean(IS_INTERRUPT_INTERCEPTED_RESOURCES, false)
+    }
+
+    private fun getLastCredsTimestamp(): Long {
+        return sharedPreferences.getLong(CREDENTIALS_TIMESTAMP, 0)
+    }
+
+    private fun saveCredsTimestamp(timestamp: Long) {
+        sharedPreferences.edit {
+            putLong(CREDENTIALS_TIMESTAMP, timestamp)
+        }
+    }
+
+    private fun isTimeToRegenerate(): Boolean {
+        val lastTimestamp = getLastCredsTimestamp()
+        if (lastTimestamp == 0L) {
+            return true
+        }
+
+        val threeDaysInMs = 3L * 24 * 60 * 60 * 1000
+        val now = System.currentTimeMillis()
+        val diff = now - lastTimestamp
+
+        return diff >= threeDaysInMs
+    }
+
+    fun setGeneratedCreds(creds: GeneratedProxyCreds) {
+        sharedPreferences.edit {
+            putString(GENERATED_CREDENTIALS, creds.toJson())
+        }
+    }
+
+    fun getGeneratedCreds(): GeneratedProxyCreds {
+        val creds = sharedPreferences.getString(GENERATED_CREDENTIALS, null)
+        return if (creds != null) {
+            var credsResult: GeneratedProxyCreds
+            try {
+                val saved = GeneratedProxyCreds.fromJson(creds)
+
+                val hasSpecialChar = saved.localPassword.any { !it.isLetterOrDigit() }
+                if (hasSpecialChar) {
+                    val newCreds = GeneratedProxyCreds.generateProxyCredentials()
+                    setGeneratedCreds(newCreds)
+                    return newCreds
+                }
+
+                credsResult = if (isTimeToRegenerate()) {
+                    generateAndSetNewCreds()
+                } else {
+                    saved
+                }
+            } catch (e: Throwable) {
+                e.printStackTrace()
+                credsResult = generateAndSetNewCreds()
+            }
+            credsResult
+        } else {
+            generateAndSetNewCreds()
+        }
+    }
+
+    fun getIsDohOn(): Boolean {
+        return sharedPreferences.getBoolean(IS_DOH_ON, false)
+    }
+
+    fun setIsDohOn(isOn: Boolean) {
+        sharedPreferences.edit {
+            putBoolean(IS_DOH_ON, isOn)
+        }
+    }
+
+    fun saveSelectedDnsProvider(providerName: String) {
+        sharedPreferences.edit {
+            putString(SELECTED_DNS_PROVIDER, providerName)
+        }
+    }
+
+    fun getSelectedDnsProvider(): String? {
+        return sharedPreferences.getString(SELECTED_DNS_PROVIDER, null)
+    }
+
+    fun saveCustomDnsUrl(url: String) {
+        sharedPreferences.edit {
+            putString(CUSTOM_DNS_URL, url)
+        }
+    }
+
+    fun getCustomDnsUrl(): String {
+        return sharedPreferences.getString(CUSTOM_DNS_URL, "") ?: ""
+    }
+
+    fun getIsUseYoutubedlpM3u8Detection(): Boolean {
+        return sharedPreferences.getBoolean(IS_USE_LEGACY_M3U8_DETECTION, true)
+    }
+
+    fun setIsUseLegacyM3u8Detection(isUse: Boolean) {
+        sharedPreferences.edit {
+            putBoolean(IS_USE_LEGACY_M3U8_DETECTION, isUse)
+        }
+    }
+
+    fun getIsAskRedirection(): Boolean {
+        return sharedPreferences.getBoolean(IS_ASK_REDIRECTION, false)
+    }
+
+    fun setIsAskRedirection(isAsk: Boolean) {
+        sharedPreferences.edit { putBoolean(IS_ASK_REDIRECTION, isAsk) }
+    }
+
+    fun getMaxSimultaneousDownloads(): Int {
+        return sharedPreferences.getInt(
+            MAX_SIMULTANEOUS_DOWNLOADS,
+            Runtime.getRuntime().availableProcessors()
+        )
+    }
+
+    fun setMaxSimultaneousDownloads(count: Int) {
+        sharedPreferences.edit {
+            putInt(MAX_SIMULTANEOUS_DOWNLOADS, count)
+        }
+    }
+
+    fun getIsAdBlockOn(): Boolean {
+        return sharedPreferences.getBoolean(IS_ADBLOCK_ON, true)
+    }
+
+    fun setIsAdBlockOn(isOn: Boolean) {
+        sharedPreferences.edit {
+            putBoolean(IS_ADBLOCK_ON, isOn)
+        }
+    }
+
+    fun getIsDownloadSubtitles(): Boolean {
+        return sharedPreferences.getBoolean(IS_DOWNLOAD_SUBTITLES, false)
+    }
+
+    fun setIsDownloadSubtitles(isDownload: Boolean) {
+        sharedPreferences.edit {
+            putBoolean(IS_DOWNLOAD_SUBTITLES, isDownload)
+        }
+    }
+
+    private fun generateAndSetNewCreds(): GeneratedProxyCreds {
+        val newCreds = GeneratedProxyCreds.generateProxyCredentials()
+        setGeneratedCreds(newCreds)
+        saveCredsTimestamp(System.currentTimeMillis())
+        return newCreds
+    }
+
+    // ==================== mpv playback settings ====================
+
+    /** "fast" or "high-quality" - controls mpv's built-in --profile preset. */
+    fun getMpvProfile(): String {
+        return sharedPreferences.getString(MPV_PROFILE, "fast") ?: "fast"
+    }
+
+    fun setMpvProfile(profile: String) {
+        sharedPreferences.edit { putString(MPV_PROFILE, profile) }
+    }
+
+    fun getMpvGpuNext(): Boolean {
+        return sharedPreferences.getBoolean(MPV_GPU_NEXT, false)
+    }
+
+    fun setMpvGpuNext(enabled: Boolean) {
+        sharedPreferences.edit { putBoolean(MPV_GPU_NEXT, enabled) }
+    }
+
+    /** Only meaningful when getMpvGpuNext() is true. */
+    fun getMpvUseVulkan(): Boolean {
+        return sharedPreferences.getBoolean(MPV_USE_VULKAN, false)
+    }
+
+    fun setMpvUseVulkan(enabled: Boolean) {
+        sharedPreferences.edit { putBoolean(MPV_USE_VULKAN, enabled) }
+    }
+
+    fun getMpvHwdecEnabled(): Boolean {
+        return sharedPreferences.getBoolean(MPV_HWDEC_ENABLED, true)
+    }
+
+    fun setMpvHwdecEnabled(enabled: Boolean) {
+        sharedPreferences.edit { putBoolean(MPV_HWDEC_ENABLED, enabled) }
+    }
+
+    fun isMpvPreciseSeekingEnabled(): Boolean {
+        return sharedPreferences.getBoolean(MPV_PRECISE_SEEKING, false)
+    }
+
+    fun setMpvPreciseSeekingEnabled(enabled: Boolean) {
+        sharedPreferences.edit { putBoolean(MPV_PRECISE_SEEKING, enabled) }
+    }
+
+    /** 100-300, percent. */
+    fun getMpvVolumeMax(): Int {
+        return sharedPreferences.getInt(MPV_VOLUME_MAX, 100)
+    }
+
+    fun setMpvVolumeMax(percent: Int) {
+        sharedPreferences.edit { putInt(MPV_VOLUME_MAX, percent.coerceIn(100, 300)) }
+    }
+
+    fun isMpvRememberSpeedEnabled(): Boolean {
+        return sharedPreferences.getBoolean(MPV_REMEMBER_SPEED, false)
+    }
+
+    fun setMpvRememberSpeedEnabled(enabled: Boolean) {
+        sharedPreferences.edit { putBoolean(MPV_REMEMBER_SPEED, enabled) }
+    }
+
+    fun getMpvLastSpeed(): Float {
+        return sharedPreferences.getFloat(MPV_LAST_SPEED, 1.0f)
+    }
+
+    fun setMpvLastSpeed(speed: Float) {
+        sharedPreferences.edit { putFloat(MPV_LAST_SPEED, speed) }
+    }
+
+    fun isMpvSubAutoLoadEnabled(): Boolean {
+        return sharedPreferences.getBoolean(MPV_SUB_AUTO_LOAD, true)
+    }
+
+    fun setMpvSubAutoLoadEnabled(enabled: Boolean) {
+        sharedPreferences.edit { putBoolean(MPV_SUB_AUTO_LOAD, enabled) }
+    }
+
+    fun getMpvSubtitleFontSize(): Int {
+        return sharedPreferences.getInt(MPV_SUBTITLE_FONT_SIZE, 55)
+    }
+
+    fun setMpvSubtitleFontSize(size: Int) {
+        sharedPreferences.edit { putInt(MPV_SUBTITLE_FONT_SIZE, size) }
+    }
+
+    /** true = force video's own ASS styling to be overridden by our font-size/etc. */
+    fun isMpvSubAssOverrideEnabled(): Boolean {
+        return sharedPreferences.getBoolean(MPV_SUB_ASS_OVERRIDE, false)
+    }
+
+    fun setMpvSubAssOverrideEnabled(enabled: Boolean) {
+        sharedPreferences.edit { putBoolean(MPV_SUB_ASS_OVERRIDE, enabled) }
+    }
+
+    fun getMpvCacheSecs(): Int {
+        return sharedPreferences.getInt(MPV_CACHE_SECS, 60)
+    }
+
+    fun setMpvCacheSecs(secs: Int) {
+        sharedPreferences.edit { putInt(MPV_CACHE_SECS, secs) }
+    }
+
+    fun isMpvHdrToneMappingEnabled(): Boolean {
+        return sharedPreferences.getBoolean(MPV_HDR_TONE_MAPPING, true)
+    }
+
+    fun setMpvHdrToneMappingEnabled(enabled: Boolean) {
+        sharedPreferences.edit { putBoolean(MPV_HDR_TONE_MAPPING, enabled) }
+    }
+
+    // ---- search engine ----
+
+    fun getSelectedSearchEngineId(): String {
+        return sharedPreferences.getString(SELECTED_SEARCH_ENGINE_ID, null)
+            ?: SearchEngine.DUCKDUCKGO.name
+    }
+
+    fun saveSelectedSearchEngineId(id: String) {
+        sharedPreferences.edit {
+            putString(SELECTED_SEARCH_ENGINE_ID, id)
+        }
+    }
+}

@@ -1,0 +1,168 @@
+package com.myAllVideoBrowser.util.downloaders.super_x_downloader
+
+import android.content.Context
+import android.util.Base64
+import androidx.work.BackoffPolicy
+import androidx.work.Data
+import androidx.work.ExistingWorkPolicy
+import androidx.work.OneTimeWorkRequest
+import androidx.work.WorkManager
+import com.myAllVideoBrowser.data.local.room.entity.VideoInfo
+import com.myAllVideoBrowser.util.AppLogger
+import com.myAllVideoBrowser.util.ContextUtils
+import com.myAllVideoBrowser.util.downloaders.generic_downloader.GenericDownloader
+import org.json.JSONObject
+import java.util.concurrent.TimeUnit
+
+object SuperXDownloader : GenericDownloader() {
+
+    fun runWorkerTask(
+        context: Context,
+        info: VideoInfo,
+        taskData: OneTimeWorkRequest,
+        action: String
+    ) {
+        if (action == DownloaderActions.PAUSE) {
+            WorkManager.getInstance(context).enqueueUniqueWork(
+                info.id + DownloaderActions.PAUSE, ExistingWorkPolicy.APPEND_OR_REPLACE, taskData
+            )
+            return
+        }
+
+        if (action == DownloaderActions.CANCEL) {
+            WorkManager.getInstance(context).enqueueUniqueWork(
+                info.id + DownloaderActions.CANCEL, ExistingWorkPolicy.APPEND_OR_REPLACE, taskData
+            )
+            return
+        }
+
+        if (action == DownloaderActions.STOP_SAVE_ACTION) {
+            WorkManager.getInstance(context).enqueueUniqueWork(
+                info.id + DownloaderActions.STOP_SAVE_ACTION,
+                ExistingWorkPolicy.APPEND_OR_REPLACE,
+                taskData
+            )
+            return
+        }
+    }
+
+    override fun stopAndSaveDownload(context: Context, videoInfo: VideoInfo) {
+        val downloadWork = getWorkRequest(videoInfo.id)
+        val downloaderData =
+            getDownloadDataFromVideoInfo(videoInfo)
+        downloaderData.putString(Constants.ACTION_KEY, DownloaderActions.STOP_SAVE_ACTION)
+        downloadWork.setInputData(downloaderData.build())
+
+        runWorkerTask(
+            context,
+            videoInfo,
+            downloadWork.build(),
+            DownloaderActions.STOP_SAVE_ACTION
+        )
+    }
+
+    override fun cancelDownload(context: Context, videoInfo: VideoInfo, removeFile: Boolean) {
+        val downloadWork = getWorkRequest(videoInfo.id)
+        val downloaderData =
+            getDownloadDataFromVideoInfo(videoInfo)
+        downloaderData.putString(Constants.ACTION_KEY, DownloaderActions.CANCEL)
+        downloaderData.putString(Constants.IS_FILE_REMOVE_KEY, removeFile.toString())
+        downloadWork.setInputData(downloaderData.build())
+
+        runWorkerTask(
+            context,
+            videoInfo,
+            downloadWork.build(), DownloaderActions.CANCEL
+        )
+    }
+
+    override fun pauseDownload(context: Context, videoInfo: VideoInfo) {
+        val downloadWork = getWorkRequest(videoInfo.id)
+
+        val downloaderData =
+            getDownloadDataFromVideoInfo(videoInfo)
+        downloaderData.putString(Constants.ACTION_KEY, DownloaderActions.PAUSE)
+        downloadWork.setInputData(downloaderData.build())
+
+        runWorkerTask(
+            context,
+            videoInfo,
+            downloadWork.build(), DownloaderActions.PAUSE
+        )
+    }
+
+    override fun resumeDownload(context: Context, videoInfo: VideoInfo) {
+        val downloadWork = getWorkRequest(videoInfo.id)
+
+        val downloaderData =
+            getDownloadDataFromVideoInfo(videoInfo)
+        downloaderData.putString(Constants.ACTION_KEY, DownloaderActions.RESUME)
+        downloadWork.setInputData(downloaderData.build())
+
+        runWorkerTask(
+            context,
+            videoInfo,
+            downloadWork.build()
+        )
+    }
+
+    override fun getDownloadDataFromVideoInfo(videoInfo: VideoInfo): Data.Builder {
+        // Enforce nullability constraints that might have been bypassed by reflection (GSON/Room)
+        videoInfo.repairNulls()
+
+        val videoUrl = videoInfo.originalUrl
+        val formatsList = videoInfo.formats.allFormats()
+        val firstFormat = formatsList.firstOrNull()
+
+        val headers = firstFormat?.httpHeaders
+        val headersMap = headers?.toMutableMap() ?: mutableMapOf()
+
+        val fileName = videoInfo.name
+
+        val cookie = headersMap["Cookie"]
+        if (cookie != null) {
+            headersMap["Cookie"] =
+                Base64.encodeToString(cookie.toByteArray(), Base64.DEFAULT)
+        }
+
+        val headersForClean = (headersMap as Map<*, *>?)?.let { JSONObject(it).toString() }
+        val headersVal = try {
+            Base64.encodeToString(headersForClean?.toByteArray(), Base64.DEFAULT)
+        } catch (_: Throwable) {
+            "{}"
+        }
+        val data = Data.Builder()
+        data.putString(Constants.URL_KEY, videoUrl)
+        data.putString(Constants.TASK_ID_KEY, videoInfo.id)
+
+        val zipHeaders = compressString(headersVal)
+        AppLogger.d(
+            "SuperXDownloader: Zipped headers size $headersMap  ${zipHeaders.toByteArray().size} from ${headersVal.toByteArray().size}"
+        )
+
+        saveStringToSharedPreferences(
+            ContextUtils.getApplicationContext(), videoInfo.id, zipHeaders
+        )
+
+        data.putLong(Constants.DURATION, videoInfo.duration)
+        data.putString(Constants.TITLE_KEY, videoInfo.title)
+        data.putString(Constants.FILENAME_KEY, fileName)
+        data.putBoolean(Constants.IS_M3U8, videoInfo.isM3u8)
+        data.putBoolean(Constants.IS_MPD, videoInfo.isMpd)
+        data.putString(
+            Constants.SELECTED_FORMAT_ID,
+            firstFormat?.formatId
+        )
+        data.putBoolean(Constants.IS_LIVE, videoInfo.isLive)
+        data.putString(Constants.VIDEO_CODEC, firstFormat?.vcodec)
+        data.putBoolean(Constants.IS_AUDIO_ONLY_EXTRACT, videoInfo.isAudioOnlyExtract)
+        data.putString(Constants.PAIRED_AUDIO_ONLY_URL, firstFormat?.audioOnlyUrl)
+        return data
+    }
+
+    override fun getWorkRequest(id: String): OneTimeWorkRequest.Builder {
+        return OneTimeWorkRequest.Builder(SuperXDownloaderWorker::class.java)
+            .setBackoffCriteria(BackoffPolicy.LINEAR, 10, TimeUnit.SECONDS)
+            .addTag(id)
+    }
+}

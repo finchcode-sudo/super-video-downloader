@@ -1,0 +1,580 @@
+package com.myAllVideoBrowser.ui.main.home.browser
+
+import android.graphics.Bitmap
+import android.os.Build
+import android.os.Handler
+import android.os.Looper
+import android.webkit.CookieManager
+import android.webkit.HttpAuthHandler
+import android.webkit.RenderProcessGoneDetail
+import android.webkit.WebResourceError
+import android.webkit.WebResourceRequest
+import android.webkit.WebResourceResponse
+import android.webkit.WebView
+import android.webkit.WebViewClient
+import androidx.lifecycle.viewModelScope
+import com.myAllVideoBrowser.data.local.room.entity.HistoryItem
+import com.myAllVideoBrowser.ui.main.history.HistoryViewModel
+import com.myAllVideoBrowser.ui.main.settings.SettingsViewModel
+import com.myAllVideoBrowser.util.FaviconUtils
+import com.myAllVideoBrowser.util.proxy_utils.CustomProxyController
+import com.myAllVideoBrowser.util.proxy_utils.OkHttpProxyClient
+import com.google.android.material.dialog.MaterialAlertDialogBuilder
+import com.myAllVideoBrowser.R
+import com.myAllVideoBrowser.ui.main.home.browser.detectedVideos.IVideoDetector
+import com.myAllVideoBrowser.ui.main.home.browser.webTab.WebTab
+import com.myAllVideoBrowser.ui.main.home.browser.webTab.WebTabViewModel
+import com.myAllVideoBrowser.util.CookieUtils
+import com.myAllVideoBrowser.util.SingleLiveEvent
+import com.myAllVideoBrowser.util.VideoUtils
+import io.reactivex.rxjava3.disposables.Disposable
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.yield
+import java.io.ByteArrayInputStream
+import androidx.core.net.toUri
+import com.myAllVideoBrowser.ui.main.home.browser.adblocker.AdBlockEngine
+import com.myAllVideoBrowser.util.AppLogger
+import okhttp3.Request
+
+val injectJsInterceptor = """
+        (function() {
+            const oldSend = XMLHttpRequest.prototype.send;
+            XMLHttpRequest.prototype.send = function(body) {
+                if (window.AndroidBridge && window.AndroidBridge.shouldInterceptPost(this._url, body || "")) {
+                    this.abort(); // Kill the XHR
+                    return;
+                }
+                oldSend.apply(this, arguments);
+            };
+
+            const oldFetch = window.fetch;
+            window.fetch = async function(input, init) {
+                const url = typeof input === 'string' ? input : input.url;
+                const method = init?.method?.toUpperCase() || 'GET';
+                if (method === 'POST' && window.AndroidBridge) {
+                    if (window.AndroidBridge.shouldInterceptPost(url, init.body || "")) {
+                        return new Response('', { status: 200 }); // Return empty
+                    }
+                }
+                return oldFetch.apply(this, arguments);
+            };
+        })();
+    """.trimIndent()
+
+// Passive network sniffing (shouldInterceptRequest) can only see an m3u8/mpd
+// manifest AFTER the page's own JS actually requests it - and many players
+// only do that once the user presses play. This script instead proactively
+// looks for manifest URLs that are already sitting in the page (HTML source,
+// inline <script> JSON, a <video>/<source> element's src) or that get
+// assigned to a media element's `.src` by the player's own JS, and reports
+// them to Android immediately - well before any such network request happens.
+val injectMediaScanner = """
+        (function() {
+            if (window.__svd_media_scanner_installed) return;
+            window.__svd_media_scanner_installed = true;
+
+            var seen = new Set();
+            var MEDIA_RE = /https?:\/\/[^\s"'<>\\]+\.(?:m3u8|mpd)(?:\?[^\s"'<>\\]*)?/gi;
+
+            function report(url) {
+                try {
+                    if (!url || typeof url !== 'string') return;
+                    url = url.split('#')[0];
+                    if (seen.has(url)) return;
+                    seen.add(url);
+                    if (window.AndroidBridge && window.AndroidBridge.reportMediaUrl) {
+                        window.AndroidBridge.reportMediaUrl(url);
+                    }
+                } catch (e) {}
+            }
+
+            function scanText(text) {
+                if (!text) return;
+                var m;
+                MEDIA_RE.lastIndex = 0;
+                while ((m = MEDIA_RE.exec(text)) !== null) {
+                    report(m[0]);
+                }
+            }
+
+            function scanDom() {
+                try { scanText(document.documentElement.outerHTML); } catch (e) {}
+                try {
+                    document.querySelectorAll('video, source').forEach(function (el) {
+                        if (el.src) report(el.src);
+                        if (el.currentSrc) report(el.currentSrc);
+                    });
+                } catch (e) {}
+            }
+
+            // Catch the URL the instant a player (hls.js, dash.js, native
+            // players, etc.) assigns it to a media element's `.src`, which
+            // usually happens before any manifest fetch is issued.
+            try {
+                var proto = HTMLMediaElement.prototype;
+                var desc = Object.getOwnPropertyDescriptor(proto, 'src') ||
+                    Object.getOwnPropertyDescriptor(Element.prototype, 'src');
+                if (desc && desc.set) {
+                    Object.defineProperty(proto, 'src', {
+                        get: desc.get,
+                        set: function (value) {
+                            report(value);
+                            return desc.set.call(this, value);
+                        },
+                        configurable: true
+                    });
+                }
+            } catch (e) {}
+
+            // SPAs (like most video sites) mutate the DOM long after the
+            // initial page load, so keep re-scanning as new content appears.
+            try {
+                var observer = new MutationObserver(function () { scanDom(); });
+                observer.observe(document.documentElement, {
+                    childList: true,
+                    subtree: true,
+                    attributes: true,
+                    attributeFilter: ['src']
+                });
+            } catch (e) {}
+
+            scanDom();
+            setTimeout(scanDom, 1500);
+            setTimeout(scanDom, 4000);
+        })();
+    """.trimIndent()
+
+enum class ContentType {
+    M3U8,
+    MPD,
+    VIDEO,
+    AUDIO,
+    OTHER
+}
+
+class CustomWebViewClient(
+    private val tabViewModel: WebTabViewModel,
+    private val settingsModel: SettingsViewModel,
+    private val videoDetectionModel: IVideoDetector,
+    private val historyModel: HistoryViewModel,
+    private val okHttpProxyClient: OkHttpProxyClient,
+    private val updateTabEvent: SingleLiveEvent<WebTab>,
+    private val pageTabProvider: PageTabProvider,
+    private val proxyController: CustomProxyController,
+    private val adBlockEngine: AdBlockEngine
+) : WebViewClient() {
+    var videoAlert: MaterialAlertDialogBuilder? = null
+    private var lastSavedHistoryUrl: String = ""
+    private var lastSavedTitleHistory: String = ""
+    private var lastRegularCheckUrl = ""
+    private val regularJobsStorage: MutableMap<String, List<Disposable>> = mutableMapOf()
+    private var approvedUrl: String? = null
+
+    // Some sites hyperlink to plain "http://" even though the same host also
+    // serves "https://". The system WebView refuses cleartext (http) traffic
+    // by default (net::ERR_CLEARTEXT_NOT_PERMITTED) - rather than showing an
+    // error page, silently retry once with "https://" before giving up.
+    private val cleartextUpgradedUrls: MutableSet<String> = mutableSetOf()
+
+    // ---- video/audio asset pairing (X/Twitter etc: separate HLS renditions
+    // with no master playlist linking them) ----
+    //
+    // IMPORTANT: this MUST be the only place that calls
+    // videoDetectionModel.verifyLinkStatus() for m3u8/mpd URLs. Both the
+    // network sniffer below (shouldInterceptRequest) and the JS-based media
+    // scanner/site rules (routed here via reportDiscoveredMediaUrl from
+    // WebTabFragment) can discover the SAME video-only rendition. If each
+    // path called verifyLinkStatus independently, whichever fired first would
+    // "win" and get recorded with no paired audio, and the later, correctly
+    // paired report would just be deduped as a repeat - which is exactly why
+    // pairing wasn't taking effect even though the pairing code itself was
+    // correct. Funneling both paths through one bucket/debounce mechanism
+    // fixes that race.
+    private data class MediaAssetBucket(
+        val videoRequests: MutableMap<String, Request> = mutableMapOf(),
+        var audioUrl: String? = null,
+        var isM3u8: Boolean = false,
+        var isMpd: Boolean = false,
+        var scheduled: Boolean = false
+    )
+
+    private val mediaAssetBuckets = mutableMapOf<String, MediaAssetBucket>()
+    private val mediaAssetHandler = Handler(Looper.getMainLooper())
+
+    private fun extractMediaAssetId(url: String): String? {
+        // Numeric asset id shared by every rendition (video and audio) of
+        // one piece of media on Twitter/X's video CDN, e.g.
+        // https://video.twimg.com/amplify_video/2069647202620731392/pl/avc1/582000/xxxx.m3u8
+        // https://video.twimg.com/amplify_video/2069647202620731392/pl/mp4a/128000/xxxx.m3u8
+        return Regex("/(?:amplify_video|ext_tw_video|tweet_video|vid)/(\\d+)/")
+            .find(url)?.groupValues?.get(1)
+    }
+
+    private fun buildRequestFromCookies(url: String): Request {
+        val cookies = CookieManager.getInstance().getCookie(url)
+        val builder = Request.Builder().url(url)
+        if (!cookies.isNullOrEmpty()) {
+            builder.header("Cookie", cookies)
+        }
+        return builder.build()
+    }
+
+    /**
+     * Single entry point for reporting a discovered m3u8/mpd URL, from
+     * EITHER the network sniffer or the JS media scanner/site rules. Buffers
+     * renditions of the same asset briefly so a video-only rendition can be
+     * paired with its sibling audio-only rendition regardless of which path
+     * or order they're discovered in, then forwards to videoDetectionModel.
+     *
+     * @param prebuiltRequest pass the real WebResourceRequest-derived
+     *   Request when available (network path - has accurate headers already
+     *   captured by the browser); leave null to build one from CookieManager
+     *   (JS-scanner path, which only ever has a bare URL string).
+     */
+    fun reportDiscoveredMediaUrl(
+        url: String, isM3u8: Boolean, isMpd: Boolean, prebuiltRequest: Request? = null
+    ) {
+        val isAudioOnlyRendition = url.contains("/mp4a/")
+        val assetId = extractMediaAssetId(url)
+        if (assetId == null) {
+            if (!isAudioOnlyRendition) {
+                val request = prebuiltRequest ?: buildRequestFromCookies(url)
+                videoDetectionModel.verifyLinkStatus(
+                    request, tabViewModel.currentTitle.get(), isM3u8, isMpd, null
+                )
+            }
+            return
+        }
+
+        val bucket = mediaAssetBuckets.getOrPut(assetId) { MediaAssetBucket() }
+        bucket.isM3u8 = bucket.isM3u8 || isM3u8
+        bucket.isMpd = bucket.isMpd || isMpd
+        if (isAudioOnlyRendition) {
+            bucket.audioUrl = url
+        } else {
+            bucket.videoRequests[url] = prebuiltRequest ?: buildRequestFromCookies(url)
+        }
+
+        if (bucket.scheduled) return
+        bucket.scheduled = true
+        // Small debounce: the network sniffer and the JS scanner can report
+        // sibling renditions moments apart in either order - wait briefly so
+        // both have a chance to arrive before finalizing the pairing.
+        mediaAssetHandler.postDelayed({
+            val finalBucket = mediaAssetBuckets.remove(assetId) ?: return@postDelayed
+            AppLogger.d(
+                "MediaAssetPairing: asset $assetId -> ${finalBucket.videoRequests.size} video rendition(s), " +
+                        "audio=${finalBucket.audioUrl}"
+            )
+            finalBucket.videoRequests.forEach { (_, req) ->
+                videoDetectionModel.verifyLinkStatus(
+                    req, tabViewModel.currentTitle.get(), finalBucket.isM3u8, finalBucket.isMpd,
+                    finalBucket.audioUrl
+                )
+            }
+        }, 600)
+    }
+
+    companion object {
+        fun emptyResponse(): WebResourceResponse {
+            return WebResourceResponse(
+                "text/plain",
+                "utf-8",
+                ByteArrayInputStream("".toByteArray())
+            )
+        }
+    }
+
+    override fun doUpdateVisitedHistory(view: WebView?, url: String?, isReload: Boolean) {
+        val viewTitle = view?.title
+        val title = tabViewModel.currentTitle.get()
+        val userAgent = view?.settings?.userAgentString ?: tabViewModel.userAgent.get()
+
+        if (url != null && lastSavedHistoryUrl != url) {
+            historyModel.viewModelScope.launch(historyModel.executorSingleHistory) {
+                val faviconUrl = FaviconUtils.getFaviconUrl(url)
+                saveUrlToHistory(url, faviconUrl, viewTitle ?: title)
+
+                videoDetectionModel.onStartPage(
+                    url,
+                    userAgent
+                        ?: BrowserFragment.MOBILE_USER_AGENT
+                )
+                tabViewModel.onUpdateVisitedHistory(
+                    url,
+                    title,
+                    userAgent
+                )
+            }
+        }
+        super.doUpdateVisitedHistory(view, url, isReload)
+    }
+
+    override fun onReceivedHttpAuthRequest(
+        view: WebView?, handler: HttpAuthHandler?, host: String?, realm: String?
+    ) {
+        if (proxyController.getCurrentRunningProxy().host == host) {
+            val creds = proxyController.getProxyCredentials()
+
+            if (creds.first.isNotEmpty() || creds.second.isNotEmpty()) {
+                handler?.proceed(creds.first, creds.second)
+            }
+        }
+        super.onReceivedHttpAuthRequest(view, handler, host, realm)
+    }
+
+    override fun shouldInterceptRequest(
+        view: WebView?, request: WebResourceRequest?
+    ): WebResourceResponse? {
+        if (request == null || request.url == null) {
+            return super.shouldInterceptRequest(view, request)
+        }
+
+        val url = request.url.toString()
+
+        val resourceType = when {
+            request.isForMainFrame -> "main_frame"
+            request.url.toString().contains(".js") -> "script"
+            request.url.toString().contains(".css") -> "stylesheet"
+            request.requestHeaders["X-Requested-With"] != null -> "xmlhttprequest"
+            request.requestHeaders["Accept"]?.contains("image") == true -> "image"
+            else -> "other"
+        }
+
+        if (settingsModel.isAdBlockOn.get()) {
+            val isAd = adBlockEngine.isAd(
+                url,
+                tabViewModel.getTabTextInput().get() ?: "",
+                resourceType
+            )
+
+            if (isAd) {
+                AppLogger.d("AdBlock (GET/Resource): Blocked $url")
+                return emptyResponse()
+            }
+        }
+
+
+        val isCheckM3u8 = settingsModel.isCheckIfEveryRequestOnM3u8.get()
+        val isCheckOnMp4 = settingsModel.getIsCheckEveryRequestOnMp4Video().get()
+        val isCheckOnAudio = settingsModel.isCheckOnAudio.get()
+
+        if (isCheckOnMp4 || isCheckM3u8 || isCheckOnAudio) {
+            val requestWithCookies = request.let { resourceRequest ->
+                try {
+                    CookieUtils.webResourceRequestToOkHttpRequest(resourceRequest)
+                } catch (_: Throwable) {
+                    null
+                }
+            }
+
+            val contentType =
+                VideoUtils.getContentTypeByUrl(url, requestWithCookies?.headers, okHttpProxyClient)
+            val isInterruptIntreceptedResources =
+                settingsModel.isInterruptIntreceptedResources.get()
+            when {
+
+                contentType == ContentType.M3U8 || contentType == ContentType.MPD || url.contains(".m3u8") || url.contains(
+                    ".mpd"
+                ) || (url.contains(".txt") && url.contains("hentaihaven")) -> {
+                    val isM3u8 =
+                        ContentType.M3U8 == contentType || (url.contains(".txt")) || url.contains(".m3u8")
+                    val isMpd = ContentType.MPD == contentType || url.contains(".mpd")
+
+                    if (requestWithCookies != null && isCheckM3u8) {
+                        reportDiscoveredMediaUrl(url, isM3u8, isMpd, requestWithCookies)
+                    }
+                    if (isInterruptIntreceptedResources) {
+                        return emptyResponse()
+                    }
+                }
+
+                else -> {
+                    if ((isCheckOnMp4 || isCheckOnAudio) && contentType != ContentType.OTHER) {
+                        val disposable = videoDetectionModel.checkRegularVideoOrAudio(
+                            requestWithCookies,
+                            isCheckOnAudio,
+                            isCheckOnMp4
+                        )
+
+                        val currentUrl = tabViewModel.getTabTextInput().get() ?: ""
+                        if (currentUrl != lastRegularCheckUrl) {
+                            regularJobsStorage[lastRegularCheckUrl]?.forEach {
+                                it.dispose()
+                            }
+                            regularJobsStorage.remove(lastRegularCheckUrl)
+                            lastRegularCheckUrl = currentUrl
+                        }
+                        if (disposable != null) {
+                            val overall = mutableListOf<Disposable>()
+                            overall.addAll(regularJobsStorage[currentUrl]?.toList() ?: emptyList())
+                            overall.add(disposable)
+                            regularJobsStorage[currentUrl] = overall
+                        }
+                        if (isInterruptIntreceptedResources) {
+                            return emptyResponse()
+                        }
+                    }
+                }
+            }
+        }
+
+        return super.shouldInterceptRequest(
+            view, request
+        )
+    }
+
+    override fun onPageStarted(view: WebView, url: String, favicon: Bitmap?) {
+        super.onPageStarted(view, url, favicon)
+
+        view.evaluateJavascript(injectJsInterceptor, null)
+        view.evaluateJavascript(injectMediaScanner, null)
+
+        videoAlert = null
+        val pageTab = pageTabProvider.getPageTab(tabViewModel.thisTabIndex.get())
+        val headers = pageTab.getHeaders() ?: emptyMap()
+        val favi = pageTab.getFavicon() ?: view.favicon ?: favicon
+
+        updateTabEvent.value = WebTab(
+            url,
+            view.title,
+            favi,
+            headers,
+            view,
+            id = pageTab.id
+        )
+        tabViewModel.onStartPage(url, view.title)
+    }
+
+    override fun shouldOverrideUrlLoading(view: WebView, url: WebResourceRequest): Boolean {
+        val newUrl = url.url.toString()
+        if (newUrl.startsWith("http") && url.isForMainFrame) {
+            if (approvedUrl == newUrl) {
+                approvedUrl = null
+                return false
+            }
+
+            val currentUrl = view.url
+            val currentHost = currentUrl?.toUri()?.host
+            val newHost = url.url.host
+
+            if (settingsModel.isAskRedirection.get() && url.isRedirect && currentHost != null && newHost != null && currentHost != newHost) {
+                showRedirectionDialog(view, newUrl, newHost)
+                return true
+            }
+
+            if (!tabViewModel.isTabInputFocused.get()) {
+                tabViewModel.setTabTextInput(newUrl)
+            }
+            return false
+        } else {
+            return true
+        }
+    }
+
+    private fun showRedirectionDialog(view: WebView, newUrl: String, newHost: String) {
+        val context = view.context
+        MaterialAlertDialogBuilder(context)
+            .setTitle(context.getString(R.string.redirection_dialog_title))
+            .setMessage("${context.getString(R.string.redirection_dialog_message)} $newHost")
+            .setPositiveButton(context.getString(R.string.yes)) { _, _ ->
+                approvedUrl = newUrl
+                view.loadUrl(newUrl)
+            }
+            .setNegativeButton(context.getString(R.string.no), null)
+            .setNeutralButton(context.getString(R.string.dontshow)) { _, _ ->
+                settingsModel.setIsAskRedirection(false)
+                approvedUrl = newUrl
+                view.loadUrl(newUrl)
+            }
+            .show()
+    }
+
+    override fun onPageFinished(view: WebView, url: String) {
+        super.onPageFinished(view, url)
+        view.evaluateJavascript(injectMediaScanner, null)
+
+        try {
+            val matchingRules = SiteRuleEngine.findMatchingRules(SiteRules.ALL, url)
+            matchingRules.forEach { rule ->
+                AppLogger.d("SiteRuleEngine: running rule '${rule.name}' on $url")
+                view.evaluateJavascript(SiteRuleEngine.buildInjectionScript(rule), null)
+            }
+        } catch (e: Throwable) {
+            AppLogger.e("SiteRuleEngine: failed to run rules for $url - ${e.message}")
+        }
+
+        tabViewModel.finishPage(url)
+    }
+
+    override fun onReceivedError(
+        view: WebView,
+        request: WebResourceRequest,
+        error: WebResourceError
+    ) {
+        val requestUrl = request.url.toString()
+
+        if (request.isForMainFrame &&
+            request.url.scheme == "http" &&
+            isClearTextError(error) &&
+            cleartextUpgradedUrls.add(requestUrl)
+        ) {
+            AppLogger.d("CLEARTEXT blocked, retrying over https: $requestUrl")
+            view.loadUrl("https://" + requestUrl.removePrefix("http://"))
+            return
+        }
+
+        super.onReceivedError(view, request, error)
+    }
+
+    private fun isClearTextError(error: WebResourceError): Boolean {
+        // WebViewClient doesn't expose a public ERROR_CLEARTEXT_NOT_PERMITTED
+        // constant, so match on the description WebView actually reports
+        // (net::ERR_CLEARTEXT_NOT_PERMITTED) instead of a numeric error code.
+        return error.description?.contains("CLEARTEXT_NOT_PERMITTED", ignoreCase = true) == true
+    }
+
+    override fun onRenderProcessGone(
+        view: WebView?, detail: RenderProcessGoneDetail?
+    ): Boolean {
+        val pageTab = pageTabProvider.getPageTab(tabViewModel.thisTabIndex.get())
+
+        val webView = pageTab.getWebView()
+        if (if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                view == webView && detail?.didCrash() == true
+            } else {
+                view == webView
+            }
+        ) {
+            webView?.destroy()
+            return true
+        }
+
+        return super.onRenderProcessGone(view, detail)
+    }
+
+    private suspend fun saveUrlToHistory(url: String, favicon: Any?, title: String?) {
+        val isTitleEmpty = title?.trim()?.isEmpty() == true
+
+        if (!isTitleEmpty && lastSavedTitleHistory != title && lastSavedHistoryUrl != url && url.isNotEmpty() && !url.contains(
+                "about:blank"
+            )
+        ) {
+            lastSavedHistoryUrl = url
+            lastSavedTitleHistory = title ?: ""
+
+            val faviconUrl = when (favicon) {
+                is String -> favicon
+                else -> FaviconUtils.getFaviconUrl(url)
+            }
+
+            yield()
+
+            historyModel.saveHistory(
+                HistoryItem(
+                    url = url, faviconUrl = faviconUrl, title = title
+                )
+            )
+        }
+    }
+}
