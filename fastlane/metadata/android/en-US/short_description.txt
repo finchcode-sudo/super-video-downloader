@@ -1,1 +1,0 @@
-Video downloader with browser for downloading videos from everywhere

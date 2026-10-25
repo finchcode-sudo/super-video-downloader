@@ -1,3 +1,0 @@
-### Fixed
-- Bug with videos without sound fix
-- Minor fixes
