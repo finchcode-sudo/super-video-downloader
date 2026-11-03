@@ -24,6 +24,7 @@ import com.myAllVideoBrowser.ui.main.settings.SettingsViewModel
 import com.myAllVideoBrowser.util.AppLogger
 import com.myAllVideoBrowser.util.ContextUtils
 import com.myAllVideoBrowser.util.CookieUtils
+import com.myAllVideoBrowser.util.DetectionLogger
 import com.myAllVideoBrowser.util.SingleLiveEvent
 import com.myAllVideoBrowser.util.UrlMediaFilter
 import com.myAllVideoBrowser.util.proxy_utils.OkHttpProxyClient
@@ -221,9 +222,6 @@ open class VideoDetectionTabViewModel @Inject constructor(
         resourceRequest: Request, hlsTitle: String?, isM3u8: Boolean, isMpd: Boolean,
         audioOnlyUrl: String?
     ) {
-        if (resourceRequest.url.toString().contains("tiktok.")) {
-            return
-        }
         if (UrlMediaFilter.isFalsePositive(resourceRequest.url.toString())) {
             return
         }
@@ -272,7 +270,7 @@ open class VideoDetectionTabViewModel @Inject constructor(
                         )
                     } else {
                         videoRepository.getVideoInfo(
-                            resourceRequest, false, settingsModel.isCheckOnAudio.get()
+                            resourceRequest, isM3u8 || isMpd, settingsModel.isCheckOnAudio.get()
                         )
                     }
                 } catch (e: Throwable) {
@@ -328,27 +326,56 @@ open class VideoDetectionTabViewModel @Inject constructor(
         }
 
         val detectedVideos = detectedVideosList.get() ?: ConcurrentHashMap.newKeySet()
-
-        if (detectedVideos.any { isVideoInfoDuplicate(it, newInfo) }) {
-            AppLogger.d("SKIP DUPLICATED VIDEO INFO: $newInfo")
-            return
-        }
-
-        AppLogger.d("PUSHING $newInfo to list")
-
         val nextSet = ConcurrentHashMap.newKeySet<VideoInfo>()
         nextSet.addAll(detectedVideos)
-        nextSet.add(newInfo)
 
-        detectedVideosList.set(nextSet)
-        setButtonState(DownloadButtonStateCanDownload(newInfo))
+        var isDuplicateFound = false
 
-        viewModelScope.launch(Dispatchers.Main) {
-            videoPushedEvent.call()
+        for (existing in detectedVideos) {
+            if (isVideoInfoDuplicate(existing, newInfo)) {
+                isDuplicateFound = true
+                if (newInfo.isMaster && !existing.isMaster) {
+                    nextSet.remove(existing)
+                    isDuplicateFound = false
+                    AppLogger.d("REPLACING single rendition with Master playlist for video: $newInfo")
+                } else {
+                    val type = if (newInfo.isDetectedBySuperX) {
+                        "SUPERX"
+                    } else if (!newInfo.isRegularDownload) {
+                        "YOUTUBE-DLP"
+                    } else {
+                        "REGULAR"
+                    }
+                    val skippedUrl = if (newInfo.downloadUrls.firstOrNull() != null) {
+                        newInfo.downloadUrls.firstOrNull()?.url.toString()
+                    } else {
+                        newInfo.originalUrl
+                    }
+                    DetectionLogger.log(
+                        type,
+                        "SKIP",
+                        skippedUrl
+                    )
+                    AppLogger.d("SKIP DUPLICATED VIDEO INFO: $newInfo")
+                    break
+                }
+            }
+        }
+
+        if (!isDuplicateFound) {
+            AppLogger.d("PUSHING $newInfo to list")
+            nextSet.add(newInfo)
+
+            detectedVideosList.set(nextSet)
+            setButtonState(DownloadButtonStateCanDownload(newInfo))
+
+            viewModelScope.launch(Dispatchers.Main) {
+                videoPushedEvent.call()
+            }
         }
     }
 
-    private fun isVideoInfoDuplicate(existing: VideoInfo, newInfo: VideoInfo): Boolean {
+    fun isVideoInfoDuplicate(existing: VideoInfo, newInfo: VideoInfo): Boolean {
         return if (newInfo.isRegularDownload) {
             existing.firstUrlToString == newInfo.firstUrlToString
         } else {
@@ -401,6 +428,7 @@ open class VideoDetectionTabViewModel @Inject constructor(
             regularLoadingList.get()?.remove(request.url.toString())
             regularLoadingList.notifyChange()
         }.onErrorComplete().doOnError {
+            DetectionLogger.log("REGULAR", "ERROR", uriString, it.message ?: "unknown")
             AppLogger.d("Checking ERROR... $clearedUrl")
         }.subscribe()
 
@@ -414,7 +442,7 @@ open class VideoDetectionTabViewModel @Inject constructor(
             m3u8LoadingList.get()?.clear()
             m3u8LoadingList.notifyChange()
             executorRegular.cancel()
-            
+
             // Iterate over a snapshot of values to safely dispose
             val jobs = verifyVideoLinkJobStorage.values.toMutableList()
             verifyVideoLinkJobStorage.clear()
@@ -433,13 +461,13 @@ open class VideoDetectionTabViewModel @Inject constructor(
             }
 
             is DownloadButtonStateCanNotDownload -> {
-                val detectedSize = detectedVideosList.get()?.size
-                if (detectedSize == null || detectedSize == 0) {
+                val list = detectedVideosList.get()
+                if (list.isNullOrEmpty()) {
                     downloadButtonState.set(DownloadButtonStateCanNotDownload())
                 } else {
                     downloadButtonState.set(
                         DownloadButtonStateCanDownload(
-                            detectedVideosList.get()?.first()
+                            list.firstOrNull()
                         )
                     )
                 }
@@ -450,7 +478,7 @@ open class VideoDetectionTabViewModel @Inject constructor(
                 if (list.isEmpty()) {
                     downloadButtonState.set(DownloadButtonStateLoading())
                 } else {
-                    downloadButtonState.set(DownloadButtonStateCanDownload(list.first()))
+                    downloadButtonState.set(DownloadButtonStateCanDownload(list.firstOrNull()))
                 }
             }
         }
@@ -525,6 +553,7 @@ open class VideoDetectionTabViewModel @Inject constructor(
         isCheckOnAudio: Boolean,
         isCheckOnVideo: Boolean
     ) {
+        DetectionLogger.log("REGULAR", "START", url)
         val threshold = settingsModel.videoDetectionTreshold.get()
 
         val finalUrlPair = runCatching {
@@ -551,6 +580,7 @@ open class VideoDetectionTabViewModel @Inject constructor(
                 val contentLength = response.body.contentLength()
 
                 if (response.code == 403 || response.code == 401) {
+                    DetectionLogger.log("REGULAR", "ERROR", url, "HTTP ${response.code}")
                     handleUnauthorizedResponse(url, threshold, isCheckOnAudio, isCheckOnVideo)
                     return
                 }
@@ -566,19 +596,20 @@ open class VideoDetectionTabViewModel @Inject constructor(
                 val isAboveUserThreshold = contentLength > threshold
                 val isStreamDetectionOn = isRegularStreamDetectionOn
 
-                val isVideoContent =
-                    isVideo && isCheckOnVideo && (isAboveUserThreshold || isLargeEnoughForTikTok || isStreamDetectionOn)
+                val isVideoContent = isVideo && isCheckOnVideo
 
                 val isAudioContent = isAudio && isCheckOnAudio
 
-                if (isVideoContent) {
+                if (isVideoContent && (isAboveUserThreshold || isLargeEnoughForTikTok || isStreamDetectionOn)) {
+                    DetectionLogger.log("REGULAR", "SUCCESS", url)
                     setMediaInfoWrapperFromUrl(
                         finalUrlPair.first,
                         webTabModel?.getTabTextInput()?.get(),
                         finalUrlPair.second.toMap(),
                         contentLength
                     )
-                } else if (isAudioContent) {
+                } else if (isAudioContent && (isAboveUserThreshold || isLargeEnoughForTikTok || isStreamDetectionOn)) {
+                    DetectionLogger.log("REGULAR AUDIO", "SUCCESS", url)
                     setMediaInfoWrapperFromUrl(
                         finalUrlPair.first,
                         webTabModel?.getTabTextInput()?.get(),
@@ -586,9 +617,15 @@ open class VideoDetectionTabViewModel @Inject constructor(
                         contentLength,
                         isAudio = true
                     )
+                } else {
+                    if (isAudioContent || isVideoContent) {
+                        val reason = "Below User's Threshold"
+                        DetectionLogger.log("REGULAR", "FAILED", url, reason)
+                    }
                 }
             }
         }.onFailure { e ->
+            DetectionLogger.log("REGULAR", "ERROR", url, e.message ?: "unknown")
             e.printStackTrace()
         }
     }
@@ -602,6 +639,7 @@ open class VideoDetectionTabViewModel @Inject constructor(
         }.getOrNull() ?: return
 
         runCatching {
+            DetectionLogger.log("REGULAR", "START", url)
             val request = Request.Builder().url(finalUrlPairEmpty.first).build()
             okHttpProxyClient.getProxyOkHttpClient().newCall(request).execute().use { response ->
                 val contentType = response.body.contentType().toString()
@@ -611,6 +649,7 @@ open class VideoDetectionTabViewModel @Inject constructor(
                     contentType.contains(
                         "video", true
                     ) && isCheckOnVideo && contentLength > threshold.toLong() -> {
+                        DetectionLogger.log("REGULAR", "SUCCESS", url)
                         setMediaInfoWrapperFromUrl(
                             finalUrlPairEmpty.first,
                             webTabModel?.getTabTextInput()?.get(),
@@ -620,6 +659,7 @@ open class VideoDetectionTabViewModel @Inject constructor(
                     }
 
                     contentType.contains("audio", true) && isCheckOnAudio -> {
+                        DetectionLogger.log("REGULAR", "SUCCESS", url)
                         setMediaInfoWrapperFromUrl(
                             finalUrlPairEmpty.first,
                             webTabModel?.getTabTextInput()?.get(),
@@ -627,6 +667,10 @@ open class VideoDetectionTabViewModel @Inject constructor(
                             contentLength,
                             true
                         )
+                    }
+
+                    else -> {
+                        DetectionLogger.log("REGULAR", "FAILED", url, "unknown unauthorized error")
                     }
                 }
             }
@@ -669,8 +713,9 @@ open class VideoDetectionTabViewModel @Inject constructor(
                                 format = if (isAudio) "audio" else ContextUtils.getApplicationContext()
                                     .getString(R.string.player_resolution),
                                 ext = if (isAudio) "mp3" else "mp4",
-                                url = downloadUrls.first().url.toString(),
-                                httpHeaders = downloadUrls.first().headers.toMap(),
+                                url = downloadUrls.firstOrNull()?.url?.toString() ?: "",
+                                httpHeaders = downloadUrls.firstOrNull()?.headers?.toMap()
+                                    ?: emptyMap(),
                                 fileSize = contentLength
                             )
                         )

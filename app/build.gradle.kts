@@ -138,8 +138,8 @@ android {
         applicationId = "com.myAllVideoBrowser"
         minSdk = libs.versions.minSdk.get().toInt()
         targetSdk = libs.versions.targetSdk.get().toInt()
-        versionCode = 454
-        versionName = "0.8.25.9"
+        versionCode = 500
+        versionName = "0.9.1.2"
 
         val localSubtitleProps = Properties()
         val localSubtitlePropsFile = rootProject.file("local.properties")

@@ -19,6 +19,7 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import okhttp3.Request
+import java.util.concurrent.ConcurrentHashMap
 import javax.inject.Inject
 
 class GlobalVideoDetectionModel @Inject constructor(
@@ -78,9 +79,6 @@ class GlobalVideoDetectionModel @Inject constructor(
         resourceRequest: Request, hlsTitle: String?, isM3u8: Boolean, isMpd: Boolean,
         audioOnlyUrl: String?
     ) {
-        if (resourceRequest.url.toString().contains("tiktok.")) {
-            return
-        }
         if (UrlMediaFilter.isFalsePositive(resourceRequest.url.toString())) {
             return
         }
@@ -226,16 +224,42 @@ class GlobalVideoDetectionModel @Inject constructor(
     }
 
     override suspend fun pushNewVideoInfoToAll(newInfo: VideoInfo) {
-        if (newInfo.formats.allFormats().isEmpty()) {
+        if (newInfo.formats.allFormats().isEmpty() || newInfo.id.isEmpty()) {
             return
         }
 
-        // Cancel previous pending UI update to avoid flickering
-        pushJob?.cancel()
-        pushJob = viewModelScope.launch(Dispatchers.Main) {
-            downloadButtonState.set(DownloadButtonStateLoading())
-            delay(400)
-            downloadButtonState.set(DownloadButtonStateCanDownload(newInfo))
+        val detectedVideos = detectedVideosList.get() ?: ConcurrentHashMap.newKeySet()
+        val nextSet = ConcurrentHashMap.newKeySet<VideoInfo>()
+        nextSet.addAll(detectedVideos)
+
+        var isDuplicateFound = false
+
+        for (existing in detectedVideos) {
+            if (isVideoInfoDuplicate(existing, newInfo)) {
+                isDuplicateFound = true
+                if (newInfo.isMaster && !existing.isMaster) {
+                    nextSet.remove(existing)
+                    isDuplicateFound = false
+                    AppLogger.d("REPLACING single rendition with Master playlist for video: $newInfo")
+                } else {
+                    AppLogger.d("SKIP DUPLICATED VIDEO INFO: $newInfo")
+                    break
+                }
+            }
+        }
+
+        if (!isDuplicateFound) {
+            AppLogger.d("PUSHING $newInfo to list")
+            nextSet.add(newInfo)
+            detectedVideosList.set(nextSet)
+
+            // Cancel previous pending UI update to avoid flickering
+            pushJob?.cancel()
+            pushJob = viewModelScope.launch(Dispatchers.Main) {
+                downloadButtonState.set(DownloadButtonStateLoading())
+                delay(400)
+                downloadButtonState.set(DownloadButtonStateCanDownload(newInfo))
+            }
         }
     }
 

@@ -28,6 +28,7 @@ import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.viewModelScope
 import androidx.webkit.WebSettingsCompat
+import androidx.webkit.WebViewCompat
 import androidx.webkit.WebViewFeature
 import com.bumptech.glide.Glide
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
@@ -39,6 +40,7 @@ import com.myAllVideoBrowser.databinding.FragmentWebTabBinding
 import com.myAllVideoBrowser.ui.component.adapter.SuggestionTabListener
 import com.myAllVideoBrowser.ui.component.adapter.TabSuggestionAdapter
 import com.myAllVideoBrowser.ui.component.adapter.DownloadTabListener
+import com.myAllVideoBrowser.ui.component.widget.NestedWebView
 import com.myAllVideoBrowser.ui.main.home.browser.BaseWebTabFragment
 import com.myAllVideoBrowser.ui.main.home.browser.BrowserFragment
 import com.myAllVideoBrowser.ui.main.home.browser.BrowserListener
@@ -58,6 +60,7 @@ import com.myAllVideoBrowser.ui.main.home.browser.WorkerEventProvider
 import com.myAllVideoBrowser.ui.main.home.browser.adblocker.AdBlockEngine
 import com.myAllVideoBrowser.ui.main.home.browser.detectedVideos.DetectedVideosTabFragment
 import com.myAllVideoBrowser.ui.main.home.browser.detectedVideos.VideoDetectionTabViewModel
+import com.myAllVideoBrowser.ui.main.home.browser.disableWebRtcJs
 import com.myAllVideoBrowser.ui.main.player.VideoPlayerActivity
 import com.myAllVideoBrowser.ui.main.player.VideoPlayerFragment
 import com.myAllVideoBrowser.util.AppLogger
@@ -393,7 +396,7 @@ class WebTabFragment : BaseWebTabFragment() {
     private fun recreateWebView(savedInstanceState: Bundle?) {
         try {
             if (webTab.getMessage() == null || webTab.getWebView() == null) {
-                webTab.setWebView(WebView(requireContext()))
+                webTab.setWebView(NestedWebView(requireContext()))
             }
 
             if (savedInstanceState != null) {
@@ -414,6 +417,14 @@ class WebTabFragment : BaseWebTabFragment() {
     @SuppressLint("SetJavaScriptEnabled")
     private fun configureWebView(fragmentWebTabBinding: FragmentWebTabBinding) {
         val currentWebView = this.webTab.getWebView() ?: return
+
+        if (WebViewFeature.isFeatureSupported(WebViewFeature.DOCUMENT_START_SCRIPT)) {
+            WebViewCompat.addDocumentStartJavaScript(
+                currentWebView,
+                disableWebRtcJs,
+                setOf("*")
+            )
+        }
 
         val webViewClient = CustomWebViewClient(
             tabViewModel,
@@ -708,6 +719,10 @@ class WebTabFragment : BaseWebTabFragment() {
                 videoDetectionTabViewModel.cancelAllCheckJobs()
             }
         }
+        
+        override fun onShowLogsClicked() {
+            navigateToDetectionLogs()
+        }
     }
 
     private fun getWebViewClientCompat(webView: WebView?): CustomWebViewClient? {
@@ -891,28 +906,26 @@ class WebTabFragment : BaseWebTabFragment() {
 
     private val shouldInterceptPostRequests = WebPostBridge(
         onIntercept = { url, body ->
-            val isAdBlockOn = mainActivity.settingsViewModel.isAdBlockOn.get()
-            val isAd = isAdBlockOn &&
-                    adBlockEngine.isAd(
-                        url,
-                        tabViewModel.getTabTextInput().get() ?: "",
-                        "xmlhttprequest"
-                    )
-            if (isAd) {
-                AppLogger.d("AdBlock (POST): Blocked $url")
+            if (CustomWebViewClient.isBotChallengeOrCaptcha(url)) {
+                false
+            } else {
+                val isAdBlockOn = mainActivity.settingsViewModel.isAdBlockOn.get()
+                val isAd = isAdBlockOn &&
+                        adBlockEngine.isAd(
+                            url,
+                            tabViewModel.getTabTextInput().get() ?: "",
+                            "xmlhttprequest"
+                        )
+                if (isAd) {
+                    AppLogger.d("AdBlock (POST): Blocked $url")
+                }
+                isAd
             }
-            isAd
         },
         onMediaUrlFound = { url ->
             if (mainActivity.settingsViewModel.isCheckIfEveryRequestOnM3u8.get()) {
                 // Route through the SAME pairing engine the network sniffer
                 // uses (see CustomWebViewClient.reportDiscoveredMediaUrl).
-                // Using two separate, uncoordinated pairing caches (one here,
-                // one in CustomWebViewClient) was the actual bug behind
-                // audio pairing silently not working: whichever path
-                // reported a URL first "won" with no paired audio, and the
-                // later, correctly-paired report was just deduped as a
-                // repeat. A single shared cache fixes that race.
                 val isM3u8 = url.contains(".m3u8")
                 val isMpd = url.contains(".mpd")
                 customWebViewClient?.reportDiscoveredMediaUrl(url, isM3u8, isMpd)

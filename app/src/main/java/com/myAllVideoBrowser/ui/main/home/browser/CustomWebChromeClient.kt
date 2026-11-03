@@ -5,11 +5,13 @@ import android.graphics.Bitmap
 import android.os.Message
 import android.view.View
 import android.view.WindowManager
+import android.webkit.PermissionRequest
 import android.webkit.WebChromeClient
 import android.webkit.WebView
 import android.widget.Toast
 import com.myAllVideoBrowser.R
 import com.myAllVideoBrowser.databinding.FragmentWebTabBinding
+import com.myAllVideoBrowser.ui.component.widget.NestedWebView
 import com.myAllVideoBrowser.ui.main.home.MainActivity
 import com.myAllVideoBrowser.ui.main.home.browser.webTab.WebTab
 import com.myAllVideoBrowser.ui.main.home.browser.webTab.WebTabViewModel
@@ -27,6 +29,17 @@ class CustomWebChromeClient(
     private val appUtil: AppUtil,
     private val mainActivity: MainActivity
 ) : WebChromeClient() {
+
+    override fun onPermissionRequest(request: PermissionRequest?) {
+        val resources = request?.resources
+        if (resources?.contains(PermissionRequest.RESOURCE_AUDIO_CAPTURE) == true ||
+            resources?.contains(PermissionRequest.RESOURCE_VIDEO_CAPTURE) == true
+        ) {
+            request.deny()
+        } else {
+            super.onPermissionRequest(request)
+        }
+    }
 
     override fun onCreateWindow(
         view: WebView?,
@@ -52,7 +65,7 @@ class CustomWebChromeClient(
 
         try {
             val transport = resultMsg.obj as WebView.WebViewTransport
-            val newWebView = WebView(view.context)
+            val newWebView = NestedWebView(view.context)
             transport.webView = newWebView
 
             tabViewModel.openPageEvent.value =
@@ -75,7 +88,8 @@ class CustomWebChromeClient(
             return true
         } catch (e: Exception) {
             AppLogger.e("Failed to create new WebView window: ${e.message}")
-            Toast.makeText(view.context, "WebView provider not available.", Toast.LENGTH_SHORT).show()
+            Toast.makeText(view.context, "WebView provider not available.", Toast.LENGTH_SHORT)
+                .show()
             return false
         }
     }

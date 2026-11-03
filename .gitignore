@@ -18,3 +18,4 @@ captures/*
 /mpv-native/buildscripts/prefix
 /mpv-native/src/obj
 /app/src/main/jniLibs
+!rust_adblock/vendor/*/build/

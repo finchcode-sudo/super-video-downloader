@@ -73,7 +73,7 @@ class VideoPlayerFragment : BaseFragment() {
     @Inject
     lateinit var okHttpClient: OkHttpProxyClient
 
-    private lateinit var player: ExoPlayer
+    private var player: ExoPlayer? = null
 
     private lateinit var videoPlayerViewModel: VideoPlayerViewModel
 
@@ -171,9 +171,9 @@ class VideoPlayerFragment : BaseFragment() {
                 toggleFullscreen()
             }
 
-            player.addListener(object : Player.Listener {
+            player?.addListener(object : Player.Listener {
                 override fun onPlaybackStateChanged(playbackState: Int) {
-                    if (playbackState == Player.STATE_READY && player.playWhenReady) {
+                    if (playbackState == Player.STATE_READY && player?.playWhenReady == true) {
                         currentBinding.loadingBar.visibility = View.GONE
                     } else if (playbackState == Player.STATE_ENDED || playbackState == Player.STATE_IDLE) {
                         currentBinding.loadingBar.visibility = View.GONE
@@ -200,9 +200,9 @@ class VideoPlayerFragment : BaseFragment() {
             if (url != Uri.EMPTY) {
                 try {
                     val mediaItem: MediaItem = MediaItem.fromUri(url)
-                    player.setMediaItem(mediaItem)
-                    player.prepare()
-                    player.playWhenReady = true
+                    player?.setMediaItem(mediaItem)
+                    player?.prepare()
+                    player?.playWhenReady = true
                 } catch (e: Throwable) {
                     Toast.makeText(context, "Error loading video: ${e.message}", Toast.LENGTH_LONG).show()
                     handleClose()
@@ -242,7 +242,7 @@ class VideoPlayerFragment : BaseFragment() {
             it.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
         }
         videoPlayerViewModel.stop()
-        player.release()
+        player?.release()
         super.onDestroyView()
     }
 
@@ -256,7 +256,7 @@ class VideoPlayerFragment : BaseFragment() {
 
     private fun handlePlayerEvents() {
         videoPlayerViewModel.stopPlayerEvent.observe(viewLifecycleOwner) {
-            player.stop()
+            player?.stop()
         }
     }
 

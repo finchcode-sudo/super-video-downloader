@@ -36,6 +36,35 @@ import com.myAllVideoBrowser.ui.main.home.browser.adblocker.AdBlockEngine
 import com.myAllVideoBrowser.util.AppLogger
 import okhttp3.Request
 
+val disableWebRtcJs = """
+    (function() {
+        function blockWebRTC(win) {
+            try {
+                // Stub RTCPeerConnection as a constructor that throws NotSupportedError
+                const DummyRTCPeerConnection = function() {
+                    throw new win.DOMException("RTCPeerConnection not supported", "NotSupportedError");
+                };
+                DummyRTCPeerConnection.prototype = {};
+                
+                win.RTCPeerConnection = DummyRTCPeerConnection;
+                win.webkitRTCPeerConnection = DummyRTCPeerConnection;
+                win.mozRTCPeerConnection = DummyRTCPeerConnection;
+                
+                win.RTCSessionDescription = function() {};
+                win.webkitRTCSessionDescription = function() {};
+                win.mozRTCSessionDescription = function() {};
+                
+                win.RTCIceCandidate = function() {};
+                win.webkitRTCIceCandidate = function() {};
+                win.mozRTCIceCandidate = function() {};
+            } catch (e) {}
+        }
+
+        // 1. Block on main window
+        blockWebRTC(window);
+    })();
+""".trimIndent()
+
 val injectJsInterceptor = """
         (function() {
             const oldSend = XMLHttpRequest.prototype.send;
@@ -283,6 +312,34 @@ class CustomWebViewClient(
                 ByteArrayInputStream("".toByteArray())
             )
         }
+
+        fun isBotChallengeOrCaptcha(url: String): Boolean {
+            val lowerUrl = url.lowercase()
+            return lowerUrl.contains(".within.website/x/cmd/anubis") ||
+                    lowerUrl.contains("/challenges.cloudflare.com/") ||
+                    lowerUrl.contains("/cdn-cgi/challenge-platform/") ||
+                    // Google reCAPTCHA & Google bot challenges / CAPTCHAs
+                    lowerUrl.contains("/recaptcha") ||
+                    lowerUrl.contains("recaptcha.net") ||
+                    lowerUrl.contains("gstatic.com/recaptcha") ||
+                    lowerUrl.contains("google.com/recaptcha") ||
+                    lowerUrl.contains("google.com/sorry") ||
+                    lowerUrl.contains("google.com/captcha") ||
+                    lowerUrl.contains("google.com/botguard") ||
+                    lowerUrl.contains("accounts.google.com/signin/v2/challenge") ||
+                    lowerUrl.contains("accounts.google.com/v3/signin/challenge") ||
+                    // Other common CAPTCHAs and bot challenges
+                    lowerUrl.contains("hcaptcha.com") ||
+                    lowerUrl.contains("/hcaptcha") ||
+                    lowerUrl.contains("arkoselabs.com") ||
+                    lowerUrl.contains("funcaptcha.com") ||
+                    // Facebook checkpoint & identity verification
+                    lowerUrl.contains("facebook.com/checkpoint") ||
+                    lowerUrl.contains("facebook.com/login/checkpoint") ||
+                    lowerUrl.contains("facebook.com/identity") ||
+                    lowerUrl.contains("facebook.com/confirm_code") ||
+                    lowerUrl.contains("facebook.com/two_step_verification")
+        }
     }
 
     override fun doUpdateVisitedHistory(view: WebView?, url: String?, isReload: Boolean) {
@@ -326,25 +383,41 @@ class CustomWebViewClient(
     override fun shouldInterceptRequest(
         view: WebView?, request: WebResourceRequest?
     ): WebResourceResponse? {
-        if (request == null || request.url == null) {
+        if (request?.url == null) {
             return super.shouldInterceptRequest(view, request)
         }
 
         val url = request.url.toString()
 
+        if (isBotChallengeOrCaptcha(url)) {
+            return super.shouldInterceptRequest(view, request)
+        }
+
+        val headers = request.requestHeaders ?: emptyMap()
+        val acceptHeader = headers.entries.find { it.key.equals("Accept", ignoreCase = true) }?.value ?: ""
+        val requestedWith = headers.entries.find { it.key.equals("X-Requested-With", ignoreCase = true) }?.value
+        val lowerUrl = url.lowercase()
+
         val resourceType = when {
             request.isForMainFrame -> "main_frame"
-            request.url.toString().contains(".js") -> "script"
-            request.url.toString().contains(".css") -> "stylesheet"
-            request.requestHeaders["X-Requested-With"] != null -> "xmlhttprequest"
-            request.requestHeaders["Accept"]?.contains("image") == true -> "image"
+            lowerUrl.contains(".js") || acceptHeader.contains("javascript") -> "script"
+            lowerUrl.contains(".css") || acceptHeader.contains("css") -> "stylesheet"
+            lowerUrl.contains(".png") || lowerUrl.contains(".jpg") || lowerUrl.contains(".jpeg") ||
+                lowerUrl.contains(".gif") || lowerUrl.contains(".webp") || lowerUrl.contains(".svg") ||
+                acceptHeader.contains("image") -> "image"
+            lowerUrl.contains(".mp4") || lowerUrl.contains(".m3u8") || lowerUrl.contains(".mpd") ||
+                lowerUrl.contains(".webm") || lowerUrl.contains(".mp3") || lowerUrl.contains(".m4a") -> "media"
+            requestedWith != null -> "xmlhttprequest"
+            acceptHeader.contains("html") -> "subdocument"
             else -> "other"
         }
 
         if (settingsModel.isAdBlockOn.get()) {
+            val tabInputUrl = tabViewModel.getTabTextInput().get() ?: ""
+            val sourceUrl = if (tabInputUrl.startsWith("http")) tabInputUrl else url
             val isAd = adBlockEngine.isAd(
                 url,
-                tabViewModel.getTabTextInput().get() ?: "",
+                sourceUrl,
                 resourceType
             )
 

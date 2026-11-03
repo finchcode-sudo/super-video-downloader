@@ -64,7 +64,7 @@ class AdBlockEngine @Inject constructor(
                     // Copy built-in rules to temp file to pass to native layer
                     try {
                         val assetFile = File(context.cacheDir, "easylist_tmp.txt")
-                        context.assets.open("easyprivacylist.txt").use { input ->
+                        context.assets.open("osid.txt").use { input ->
                             assetFile.outputStream().use { output ->
                                 input.copyTo(output)
                             }
@@ -139,33 +139,24 @@ class AdBlockEngine @Inject constructor(
             pointerLock.readLock().withLock {
                 if (nativeEnginePtr == 0L) return false
 
-                if (url.length > 1024 || url.startsWith("data:")) {
+                if (url.startsWith("data:") || url.isBlank() || url.length > 4096) {
                     return false
                 }
 
+                val safeUrl = url.trim()
+                val safeSourceUrl = sourceUrl.trim()
+                val safeResourceType = if (resourceType.isBlank()) "other" else resourceType.trim()
+
                 native.shouldBlock(
                     nativeEnginePtr,
-                    url,
-                    sourceUrl,
-                    resourceType
+                    safeUrl,
+                    safeSourceUrl,
+                    safeResourceType
                 )
             }
         } catch (e: Throwable) {
             AppLogger.e("ADBLOCK ENGINE ERROR: ${e.message}")
             false
-        }
-    }
-
-    protected fun finalize() {
-        try {
-            pointerLock.writeLock().withLock {
-                if (nativeEnginePtr != 0L) {
-                    native.destroyEngine(nativeEnginePtr)
-                    nativeEnginePtr = 0L
-                }
-            }
-        } catch (e: Throwable) {
-            e.printStackTrace()
         }
     }
 }

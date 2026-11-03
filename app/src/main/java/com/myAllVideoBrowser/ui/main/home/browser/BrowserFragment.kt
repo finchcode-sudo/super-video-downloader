@@ -86,20 +86,6 @@ interface CurrentTabIndexProvider {
     fun getCurrentTabIndex(): ObservableInt
 }
 
-interface BrowserListener {
-    fun onBrowserMenuClicked()
-
-    fun onBrowserReloadClicked()
-
-    fun onTabCloseClicked()
-
-    fun onBrowserStopClicked()
-
-    fun onBrowserBackClicked()
-
-    fun onBrowserForwardClicked()
-}
-
 const val HOME_TAB_INDEX = 0
 
 const val TAB_INDEX_KEY = "TAB_INDEX_KEY"
@@ -110,11 +96,11 @@ class BrowserFragment : BaseFragment(), BrowserServicesProvider {
     companion object {
         fun newInstance() = BrowserFragment()
         var DESKTOP_USER_AGENT =
-            "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/109.0.0.0 Safari/537.36"
+            "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
 
         // TODO different agents for different androids
         var MOBILE_USER_AGENT =
-            "Mozilla/5.0 (Linux; Android 12; Pixel 5) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/92.0.4515.131 Mobile Safari/537.36"
+            "Mozilla/5.0 (Linux; Android 14; Pixel 7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Mobile Safari/537.36"
     }
 
     private lateinit var tabsAdapter: TabsFragmentStateAdapter
@@ -175,6 +161,10 @@ class BrowserFragment : BaseFragment(), BrowserServicesProvider {
     private val serviceWorkerClient = object : ServiceWorkerClient() {
         override fun shouldInterceptRequest(request: WebResourceRequest): WebResourceResponse? {
             val url = request.url.toString()
+
+            if (CustomWebViewClient.isBotChallengeOrCaptcha(url)) {
+                return super.shouldInterceptRequest(request)
+            }
 
             if (!::settingsModel.isInitialized || !::videoDetectionModel.isInitialized) {
                 return super.shouldInterceptRequest(request)
@@ -295,7 +285,7 @@ class BrowserFragment : BaseFragment(), BrowserServicesProvider {
     ): View {
         mainViewModel = mainActivity.mainViewModel
         browserViewModel = ViewModelProvider(this, viewModelFactory)[BrowserViewModel::class.java]
-        historyModel = ViewModelProvider(this, viewModelFactory)[HistoryViewModel::class.java]
+        historyModel = mainActivity.historyViewModel
         videoDetectionModel =
             ViewModelProvider(this, viewModelFactory)[GlobalVideoDetectionModel::class.java]
 
