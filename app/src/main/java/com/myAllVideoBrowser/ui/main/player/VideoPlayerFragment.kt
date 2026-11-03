@@ -158,7 +158,7 @@ class VideoPlayerFragment : BaseFragment() {
         // tracks so audio and video land on the same position. CLOSEST_SYNC
         // snapped only to the video keyframe, which - on TS-concatenated
         // downloads with sparse keyframes - left audio ahead of the picture.
-        player.setSeekParameters(SeekParameters.EXACT)
+        player?.setSeekParameters(SeekParameters.EXACT)
 
         dataBinding.apply {
             val currentBinding = this
@@ -364,8 +364,8 @@ class VideoPlayerFragment : BaseFragment() {
                 override fun onLongPress(e: MotionEvent) {
                     if (isDraggingSeek) return
                     isLongPressSpeedActive = true
-                    normalSpeed = player.playbackParameters.speed
-                    player.setPlaybackSpeed(LONG_PRESS_SPEED)
+                    normalSpeed = player?.playbackParameters?.speed ?: 1f
+                    player?.setPlaybackSpeed(LONG_PRESS_SPEED)
                     dataBinding.gestureIndicatorText.text = "${LONG_PRESS_SPEED}x speed"
                     dataBinding.gestureIndicatorText.visibility = View.VISIBLE
                 }
@@ -383,14 +383,14 @@ class VideoPlayerFragment : BaseFragment() {
 
                     if (!isDraggingSeek) {
                         isDraggingSeek = true
-                        dragStartPositionMs = player.currentPosition
+                        dragStartPositionMs = player?.currentPosition ?: 0L
                     }
 
                     val width = dataBinding.gestureOverlay.width.takeIf { it > 0 } ?: return true
                     val totalDx = (e2.x - (e1?.x ?: e2.x))
                     val offsetMs = (totalDx / width) * SEEK_RANGE_MS
                     val targetMs = (dragStartPositionMs + offsetMs.toLong())
-                        .coerceIn(0, player.duration.coerceAtLeast(0))
+                        .coerceIn(0, (player?.duration ?: 0L).coerceAtLeast(0))
 
                     val diffSeconds = (targetMs - dragStartPositionMs) / 1000
                     val sign = if (diffSeconds >= 0) "+" else ""
@@ -404,7 +404,7 @@ class VideoPlayerFragment : BaseFragment() {
                     val now = System.currentTimeMillis()
                     if (now - lastDragSeekAtMs >= DRAG_SEEK_THROTTLE_MS) {
                         lastDragSeekAtMs = now
-                        player.seekTo(targetMs)
+                        player?.seekTo(targetMs)
                     }
                     return true
                 }
@@ -425,12 +425,12 @@ class VideoPlayerFragment : BaseFragment() {
             if (event.action == MotionEvent.ACTION_UP || event.action == MotionEvent.ACTION_CANCEL) {
                 if (isLongPressSpeedActive) {
                     isLongPressSpeedActive = false
-                    player.setPlaybackSpeed(normalSpeed)
+                    player?.setPlaybackSpeed(normalSpeed)
                 }
                 if (isDraggingSeek) {
                     // Land on the exact spot the finger was released at -
                     // throttling above may have skipped the last position.
-                    player.seekTo(pendingDragTargetMs)
+                    player?.seekTo(pendingDragTargetMs)
                 }
                 isDraggingSeek = false
                 dataBinding.gestureIndicatorText.visibility = View.GONE
