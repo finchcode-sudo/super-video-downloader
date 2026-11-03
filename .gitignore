@@ -1,0 +1,20 @@
+.DS_Store
+.gradle
+.idea
+*.iml
+local.properties
+build/
+release/
+captures/*
+.externalNativeBuild
+/app/libs/libv2ray*
+
+!rust_adblock/vendor/
+!rust_adblock/.cargo/
+
+# mpv-android 原生库的编译产物 (由 CI 生成)
+/mpv-native/buildscripts/sdk
+/mpv-native/buildscripts/deps
+/mpv-native/buildscripts/prefix
+/mpv-native/src/obj
+/app/src/main/jniLibs

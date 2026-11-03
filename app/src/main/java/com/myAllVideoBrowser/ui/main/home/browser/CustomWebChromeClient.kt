@@ -1,0 +1,153 @@
+package com.myAllVideoBrowser.ui.main.home.browser
+
+import android.content.pm.ActivityInfo
+import android.graphics.Bitmap
+import android.os.Message
+import android.view.View
+import android.view.WindowManager
+import android.webkit.WebChromeClient
+import android.webkit.WebView
+import android.widget.Toast
+import com.myAllVideoBrowser.R
+import com.myAllVideoBrowser.databinding.FragmentWebTabBinding
+import com.myAllVideoBrowser.ui.main.home.MainActivity
+import com.myAllVideoBrowser.ui.main.home.browser.webTab.WebTab
+import com.myAllVideoBrowser.ui.main.home.browser.webTab.WebTabViewModel
+import com.myAllVideoBrowser.ui.main.settings.SettingsViewModel
+import com.myAllVideoBrowser.util.AppLogger
+import com.myAllVideoBrowser.util.AppUtil
+import com.myAllVideoBrowser.util.SingleLiveEvent
+
+class CustomWebChromeClient(
+    private val tabViewModel: WebTabViewModel,
+    private val settingsViewModel: SettingsViewModel,
+    private val updateTabEvent: SingleLiveEvent<WebTab>,
+    private val pageTabProvider: PageTabProvider,
+    private val dataBinding: FragmentWebTabBinding,
+    private val appUtil: AppUtil,
+    private val mainActivity: MainActivity
+) : WebChromeClient() {
+
+    override fun onCreateWindow(
+        view: WebView?,
+        isDialog: Boolean,
+        isUserGesture: Boolean,
+        resultMsg: Message?
+    ): Boolean {
+        if (!isUserGesture || view == null || resultMsg == null) {
+            return false
+        }
+
+        // NOTE: window.open() popups triggered from JS (e.g. Google Identity
+        // Services / "Sign in with Apple" buttons) are NOT <a href> anchor
+        // clicks, so view.hitTestResult will not be SRC_ANCHOR_TYPE and won't
+        // carry a target URL. We can't know the destination URL yet at this
+        // point anyway - it gets loaded into the child WebView asynchronously
+        // after we hand the transport back. So we no longer gate popup
+        // creation on hitTestResult; we just create the child WebView and let
+        // it load whatever URL the page navigates it to.
+        val hitTestResult = view.hitTestResult
+        val hitUrl = hitTestResult.extra
+        AppLogger.d("ON_CREATE_WINDOW: hitTestResult url (may be null for JS-triggered popups): $hitUrl")
+
+        try {
+            val transport = resultMsg.obj as WebView.WebViewTransport
+            val newWebView = WebView(view.context)
+            transport.webView = newWebView
+
+            tabViewModel.openPageEvent.value =
+                WebTab(
+                    webview = newWebView,
+                    resultMsg = resultMsg,
+                    url = hitUrl ?: "",
+                    title = "Loading...",
+                    icon = null
+                )
+
+            // NOTE: do NOT call resultMsg.sendToTarget() here. WebTabFragment
+            // already calls webTab.getMessage()?.sendToTarget() once the new
+            // tab's Fragment/WebView is actually created and attached (see
+            // WebTabFragment.onCreateView). Calling it a second time here
+            // sends the same Message instance twice, which throws
+            // "IllegalStateException: This message is already in use" and
+            // crashes the app as soon as a popup (Google/Apple sign-in) tries
+            // to open.
+            return true
+        } catch (e: Exception) {
+            AppLogger.e("Failed to create new WebView window: ${e.message}")
+            Toast.makeText(view.context, "WebView provider not available.", Toast.LENGTH_SHORT).show()
+            return false
+        }
+    }
+
+    override fun onCloseWindow(window: WebView?) {
+        // Sign-in popups (Google/Apple) call window.close() via JS once the
+        // OAuth flow finishes (after posting the result back to the opener
+        // via postMessage/web_message). Without handling this, the popup tab
+        // would stay open and empty after a successful login.
+        if (window == null) {
+            super.onCloseWindow(window)
+            return
+        }
+        val pageTab = pageTabProvider.getPageTab(tabViewModel.thisTabIndex.get())
+        tabViewModel.closePageEvent.value = pageTab
+    }
+
+    override fun onReceivedIcon(view: WebView?, icon: Bitmap?) {
+        val pageTab = pageTabProvider.getPageTab(tabViewModel.thisTabIndex.get())
+
+        val headers = pageTab.getHeaders() ?: emptyMap()
+        val updateTab = WebTab(
+            pageTab.getUrl(),
+            pageTab.getTitle(),
+            icon ?: pageTab.getFavicon(),
+            headers,
+            view,
+            id = pageTab.id
+        )
+        updateTabEvent.value = updateTab
+    }
+
+    override fun onProgressChanged(view: WebView?, newProgress: Int) {
+        super.onProgressChanged(view, newProgress)
+        tabViewModel.setProgress(newProgress)
+        if (newProgress == 100) {
+            tabViewModel.isShowProgress.set(false)
+        } else {
+            tabViewModel.isShowProgress.set(true)
+        }
+    }
+
+    override fun onShowCustomView(view: View?, callback: CustomViewCallback?) {
+        super.onShowCustomView(view, callback)
+        (mainActivity).requestedOrientation =
+            ActivityInfo.SCREEN_ORIENTATION_FULL_USER
+        dataBinding.webviewContainer.visibility = View.GONE
+        dataBinding.customView.rootView.findViewById<View>(R.id.bottom_bar).visibility =
+            View.GONE
+        (mainActivity).window?.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        dataBinding.customView.addView(view)
+        appUtil.hideSystemUI(mainActivity.window, dataBinding.customView)
+        dataBinding.customView.visibility = View.VISIBLE
+        dataBinding.containerBrowser.visibility =
+            View.GONE
+    }
+
+    override fun onHideCustomView() {
+        super.onHideCustomView()
+        dataBinding.customView.removeAllViews()
+        dataBinding.webviewContainer.visibility = View.VISIBLE
+        dataBinding.customView.visibility = View.GONE
+        (mainActivity).window?.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        dataBinding.customView.rootView.findViewById<View>(R.id.bottom_bar).visibility =
+            View.VISIBLE
+        dataBinding.containerBrowser.visibility =
+            View.VISIBLE
+        mainActivity.requestedOrientation = if (settingsViewModel.isLockPortrait.get()) {
+            ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
+        } else {
+            ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
+        }
+        appUtil.showSystemUI(mainActivity.window, dataBinding.customView)
+    }
+}

@@ -1,0 +1,66 @@
+package com.myAllVideoBrowser.data.local.room.entity
+
+import androidx.room.ColumnInfo
+import androidx.room.Entity
+import androidx.room.PrimaryKey
+import com.google.gson.annotations.Expose
+import com.google.gson.annotations.SerializedName
+import java.util.*
+
+@Entity(tableName = "PageInfo")
+data class PageInfo(
+    @ColumnInfo(name = "id")
+    var id: String = UUID.randomUUID().toString(),
+
+    @ColumnInfo(name = "isSystem")
+    @SerializedName("isSystem")
+    @Expose
+    var isSystem: Boolean = true,
+
+    @ColumnInfo(name = "name")
+    @SerializedName("name")
+    @Expose
+    var name: String = "",
+
+    @PrimaryKey
+    @ColumnInfo(name = "link")
+    @SerializedName("link")
+    @Expose
+    var link: String = "",
+
+    @ColumnInfo(name = "icon")
+    @SerializedName("icon")
+    @Expose
+    var icon: String = "",
+
+    @ColumnInfo(name = "favicon")
+    var favicon: String? = null,
+
+    @ColumnInfo(name = "order")
+    @SerializedName("order")
+    @Expose
+    var order: Int = 0
+) {
+    // TODO use regex
+    fun getTitleFiltered(): String {
+        return name
+            .replace("www.", "")
+            .replace(".com", "")
+            .replaceFirstChar { it.uppercase() }
+    }
+
+    override fun equals(other: Any?): Boolean {
+        if (this === other) return true
+        if (javaClass != other?.javaClass) return false
+
+        other as PageInfo
+
+        if (favicon != other.favicon) return false
+
+        return link == other.link
+    }
+
+    override fun hashCode(): Int {
+        return 31 * link.hashCode() * (favicon?.hashCode() ?: 0)
+    }
+}

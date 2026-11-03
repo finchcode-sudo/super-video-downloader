@@ -1,0 +1,690 @@
+package com.myAllVideoBrowser.ui.main.home.browser.detectedVideos
+
+import android.webkit.CookieManager
+import androidx.databinding.Observable
+import androidx.databinding.Observable.OnPropertyChangedCallback
+import androidx.databinding.ObservableBoolean
+import androidx.databinding.ObservableField
+import androidx.databinding.ObservableInt
+import androidx.lifecycle.viewModelScope
+import com.myAllVideoBrowser.R
+import com.myAllVideoBrowser.data.local.model.VideoInfoWrapper
+import com.myAllVideoBrowser.data.local.room.entity.VideFormatEntityList
+import com.myAllVideoBrowser.data.local.room.entity.VideoFormatEntity
+import com.myAllVideoBrowser.data.local.room.entity.VideoInfo
+import com.myAllVideoBrowser.data.repository.VideoRepository
+import com.myAllVideoBrowser.ui.main.base.BaseViewModel
+import com.myAllVideoBrowser.ui.main.home.browser.BrowserFragment
+import com.myAllVideoBrowser.ui.main.home.browser.DownloadButtonState
+import com.myAllVideoBrowser.ui.main.home.browser.DownloadButtonStateCanDownload
+import com.myAllVideoBrowser.ui.main.home.browser.DownloadButtonStateCanNotDownload
+import com.myAllVideoBrowser.ui.main.home.browser.DownloadButtonStateLoading
+import com.myAllVideoBrowser.ui.main.home.browser.webTab.WebTabViewModel
+import com.myAllVideoBrowser.ui.main.settings.SettingsViewModel
+import com.myAllVideoBrowser.util.AppLogger
+import com.myAllVideoBrowser.util.ContextUtils
+import com.myAllVideoBrowser.util.CookieUtils
+import com.myAllVideoBrowser.util.SingleLiveEvent
+import com.myAllVideoBrowser.util.UrlMediaFilter
+import com.myAllVideoBrowser.util.proxy_utils.OkHttpProxyClient
+import com.myAllVideoBrowser.util.scheduler.BaseSchedulers
+import io.reactivex.rxjava3.disposables.Disposable
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.asCoroutineDispatcher
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.launch
+import okhttp3.Headers.Companion.toHeaders
+import okhttp3.Request
+import java.net.HttpCookie
+import java.net.URL
+import java.util.concurrent.Executors
+import javax.inject.Inject
+import androidx.core.net.toUri
+import java.util.concurrent.ConcurrentHashMap
+
+open class VideoDetectionTabViewModel @Inject constructor(
+    private val videoRepository: VideoRepository,
+    private val baseSchedulers: BaseSchedulers,
+    private val okHttpProxyClient: OkHttpProxyClient,
+) : BaseViewModel(), IVideoDetector {
+    // key: videoInfo.id, value: format - string
+    val selectedFormats = ObservableField<Map<String, String>>()
+
+    // key: videoInfo.id, value: title - string
+    val formatsTitles = ObservableField<Map<String, String>>()
+
+    val selectedFormatUrl = ObservableField<String>()
+
+    var initialUrl: String = ""
+
+    @Volatile
+    var m3u8LoadingList = ObservableField<MutableSet<String>>(ConcurrentHashMap.newKeySet())
+
+    @Volatile
+    var regularLoadingList = ObservableField<MutableSet<String>>(ConcurrentHashMap.newKeySet())
+
+    val showDetectedVideosEvent = SingleLiveEvent<Void?>()
+
+    val videoPushedEvent = SingleLiveEvent<Void?>()
+
+    @Volatile
+    var downloadButtonState =
+        ObservableField<DownloadButtonState>(DownloadButtonStateCanNotDownload())
+
+    val executorReload = Executors.newSingleThreadExecutor().asCoroutineDispatcher()
+    val executorPusher = Executors.newSingleThreadExecutor().asCoroutineDispatcher()
+
+    var webTabModel: WebTabViewModel? = null
+    lateinit var settingsModel: SettingsViewModel
+    val detectedVideosList = ObservableField<MutableSet<VideoInfo>>(ConcurrentHashMap.newKeySet())
+
+    val filterRegex =
+        Regex("^(.*\\.(apk|html|xml|ico|css|js|png|gif|json|jpg|jpeg|svg|woff|woff2|m3u8|mpd|ts|php|ttf|otf|eot|cur|webp|bmp|tif|tiff|psd|ai|eps|pdf|doc|docx|xls|xlsx|ppt|pptx|csv|md|rtf|vtt|srt|swf|jar|log|txt|m4s))?$")
+    val downloadButtonIcon = ObservableInt(R.drawable.invisible_24px)
+
+    @Volatile
+    var verifyVideoLinkJobStorage = ConcurrentHashMap<String, Disposable>()
+
+    private val hasCheckLoadingsM3u8 = ObservableBoolean(false)
+    private val hasCheckLoadingsRegular = ObservableBoolean(false)
+
+    private val executorRegular = Executors.newSingleThreadExecutor().asCoroutineDispatcher()
+
+    @Volatile
+    private var lastUrl = ""
+
+    private val regularLoadingListCallback = object : OnPropertyChangedCallback() {
+        override fun onPropertyChanged(sender: Observable?, propertyId: Int) {
+            val notEmpty = regularLoadingList.get()?.isNotEmpty() == true
+            hasCheckLoadingsRegular.set(notEmpty)
+            if (notEmpty) {
+                setButtonState(DownloadButtonStateCanNotDownload())
+            }
+        }
+    }
+
+    private val m3u8LoadingListCallback = object : OnPropertyChangedCallback() {
+        override fun onPropertyChanged(sender: Observable?, propertyId: Int) {
+            val notEmpty = m3u8LoadingList.get()?.isNotEmpty() == true
+            hasCheckLoadingsM3u8.set(notEmpty)
+            if (notEmpty) {
+                setButtonState(DownloadButtonStateCanNotDownload())
+            }
+        }
+    }
+
+    private val downloadButtonStateCallback = object : OnPropertyChangedCallback() {
+        override fun onPropertyChanged(sender: Observable?, propertyId: Int) {
+            when (downloadButtonState.get()) {
+                is DownloadButtonStateCanNotDownload -> downloadButtonIcon.set(R.drawable.refresh_24px)
+                is DownloadButtonStateCanDownload -> downloadButtonIcon.set(R.drawable.ic_download_24dp)
+                is DownloadButtonStateLoading -> {
+                    downloadButtonIcon.set(R.drawable.invisible_24px)
+                }
+
+                null -> {
+                    downloadButtonIcon.set(R.drawable.refresh_24px)
+                }
+            }
+        }
+    }
+
+    override fun start() {
+        AppLogger.d("START")
+        regularLoadingList.addOnPropertyChangedCallback(regularLoadingListCallback)
+        m3u8LoadingList.addOnPropertyChangedCallback(m3u8LoadingListCallback)
+        downloadButtonState.addOnPropertyChangedCallback(downloadButtonStateCallback)
+
+        downloadButtonStateCallback.onPropertyChanged(null, 0)
+    }
+
+    override fun stop() {
+        AppLogger.d("STOP")
+        regularLoadingList.removeOnPropertyChangedCallback(regularLoadingListCallback)
+        m3u8LoadingList.removeOnPropertyChangedCallback(m3u8LoadingListCallback)
+        downloadButtonState.removeOnPropertyChangedCallback(downloadButtonStateCallback)
+        cancelAllCheckJobs()
+    }
+
+    override fun onStartPage(url: String, userAgentString: String) {
+        if (url == lastUrl) {
+            AppLogger.d("onStartPage: URL is the same. Not clearing list.")
+            return
+        }
+        lastUrl = url
+        downloadButtonState.set(DownloadButtonStateCanNotDownload())
+
+        if (url != initialUrl) {
+            AppLogger.d("onStartPage: URL is not initial url. Clearing list.")
+            detectedVideosList.set(ConcurrentHashMap.newKeySet())
+            cancelAllCheckJobs()
+        } else {
+            AppLogger.d("onStartPage: URL is initial url. Skipped clearing list.")
+        }
+
+        val req = getRequestWithHeadersForUrl(
+            url, url, userAgentString
+        )?.build()
+
+        if (req != null) {
+            verifyLinkStatus(req)
+        }
+    }
+
+    fun onReloadPage(url: String, userAgentString: String) {
+        lastUrl = url
+        downloadButtonState.set(DownloadButtonStateCanNotDownload())
+
+        detectedVideosList.set(ConcurrentHashMap.newKeySet())
+        cancelAllCheckJobs()
+
+        val req = getRequestWithHeadersForUrl(
+            url, url, userAgentString
+        )?.build()
+
+        if (req != null) {
+            verifyLinkStatus(req)
+        }
+    }
+
+    override fun hasCheckLoadingsRegular(): ObservableBoolean {
+        return hasCheckLoadingsRegular
+    }
+
+    override fun hasCheckLoadingsM3u8(): ObservableBoolean {
+        return hasCheckLoadingsM3u8
+    }
+
+    override fun showVideoInfo() {
+        AppLogger.d("SHOW")
+        val state = downloadButtonState.get()
+
+        if (state is DownloadButtonStateCanNotDownload) {
+            webTabModel?.getTabTextInput()?.get()?.let {
+                if (it.startsWith("http")) {
+                    viewModelScope.launch(executorRegular) {
+                        onReloadPage(
+                            it.trim(),
+                            webTabModel?.userAgent?.get() ?: BrowserFragment.MOBILE_USER_AGENT
+                        )
+                    }
+                }
+            }
+        }
+
+        if (detectedVideosList.get()?.isNotEmpty() == true) {
+            showDetectedVideosEvent.call()
+        }
+    }
+
+    override fun verifyLinkStatus(
+        resourceRequest: Request, hlsTitle: String?, isM3u8: Boolean, isMpd: Boolean,
+        audioOnlyUrl: String?
+    ) {
+        if (resourceRequest.url.toString().contains("tiktok.")) {
+            return
+        }
+        if (UrlMediaFilter.isFalsePositive(resourceRequest.url.toString())) {
+            return
+        }
+
+        val urlToVerify = resourceRequest.url.toString()
+        if (isM3u8 || isMpd) {
+            startVerifyProcess(resourceRequest, isM3u8, isMpd, hlsTitle, audioOnlyUrl)
+        } else {
+            if (urlToVerify.contains(
+                    ".txt"
+                )
+            ) {
+                return
+            }
+            if (settingsModel.getIsFindVideoByUrl().get()) {
+                startVerifyProcess(resourceRequest, isM3u8 = false, isMpd = false)
+            }
+        }
+    }
+
+    open fun startVerifyProcess(
+        resourceRequest: Request, isM3u8: Boolean, isMpd: Boolean, hlsTitle: String? = null,
+        audioOnlyUrl: String? = null
+    ) {
+        val taskUrl = resourceRequest.url.toString().trim()
+
+        val job = verifyVideoLinkJobStorage[taskUrl]
+        if (job != null && !job.isDisposed || taskUrl.isEmpty()) {
+            return
+        }
+
+        m3u8LoadingList.get()?.add(resourceRequest.url.toString())
+        m3u8LoadingList.notifyChange()
+
+        if (detectedVideosList.get()?.isEmpty() == true) {
+            setButtonState(DownloadButtonStateLoading())
+        }
+
+        verifyVideoLinkJobStorage[taskUrl] =
+            io.reactivex.rxjava3.core.Observable.create { emitter ->
+                val info = try {
+                    val isUseLegacyDetection = settingsModel.isUseLegacyM3u8Detection.get()
+                    if (!isUseLegacyDetection && (isM3u8 || isMpd)) {
+                        videoRepository.getVideoInfoBySuperXDetector(
+                            resourceRequest, isM3u8, isMpd, settingsModel.isCheckOnAudio.get()
+                        )
+                    } else {
+                        videoRepository.getVideoInfo(
+                            resourceRequest, false, settingsModel.isCheckOnAudio.get()
+                        )
+                    }
+                } catch (e: Throwable) {
+                    e.printStackTrace()
+                    null
+                }
+                if (info != null) {
+                    emitter.onNext(info)
+                } else {
+                    emitter.onNext(VideoInfo(id = ""))
+                }
+                emitter.onComplete()
+            }.doOnTerminate {
+                m3u8LoadingList.get()?.remove(resourceRequest.url.toString())
+                m3u8LoadingList.notifyChange()
+                verifyVideoLinkJobStorage.remove(taskUrl)
+            }.observeOn(baseSchedulers.computation).subscribeOn(baseSchedulers.videoService)
+                .subscribe { info ->
+                    if (info.id.isNotEmpty()) {
+                        if (info.isM3u8 && !hlsTitle.isNullOrEmpty()) {
+                            info.title = hlsTitle
+                        }
+                        if (info.isM3u8 && !audioOnlyUrl.isNullOrEmpty()) {
+                            // This manifest was a lone, single-track HLS media
+                            // playlist (no master playlist with EXT-X-MEDIA to
+                            // tell us which audio track goes with it). We
+                            // separately discovered a sibling audio-only
+                            // rendition for the same asset (see WebTabFragment's
+                            // media scanner), so attach it here - the SuperX
+                            // downloader will fetch and mux both tracks.
+                            info.formats.formats = info.formats.allFormats().map { format ->
+                                if (format.audioOnlyUrl.isNullOrEmpty() &&
+                                    (format.acodec == null || format.acodec == "unknown" || format.acodec == "none")
+                                ) {
+                                    format.copy(audioOnlyUrl = audioOnlyUrl)
+                                } else {
+                                    format
+                                }
+                            }
+                        }
+                        viewModelScope.launch(executorPusher) {
+                            pushNewVideoInfoToAll(info)
+                        }
+                    } else {
+                        setButtonState(DownloadButtonStateCanNotDownload())
+                    }
+                }
+    }
+
+    open suspend fun pushNewVideoInfoToAll(newInfo: VideoInfo) {
+        if (newInfo.formats.allFormats().isEmpty() || newInfo.id.isEmpty()) {
+            return
+        }
+
+        val detectedVideos = detectedVideosList.get() ?: ConcurrentHashMap.newKeySet()
+
+        if (detectedVideos.any { isVideoInfoDuplicate(it, newInfo) }) {
+            AppLogger.d("SKIP DUPLICATED VIDEO INFO: $newInfo")
+            return
+        }
+
+        AppLogger.d("PUSHING $newInfo to list")
+
+        val nextSet = ConcurrentHashMap.newKeySet<VideoInfo>()
+        nextSet.addAll(detectedVideos)
+        nextSet.add(newInfo)
+
+        detectedVideosList.set(nextSet)
+        setButtonState(DownloadButtonStateCanDownload(newInfo))
+
+        viewModelScope.launch(Dispatchers.Main) {
+            videoPushedEvent.call()
+        }
+    }
+
+    private fun isVideoInfoDuplicate(existing: VideoInfo, newInfo: VideoInfo): Boolean {
+        return if (newInfo.isRegularDownload) {
+            existing.firstUrlToString == newInfo.firstUrlToString
+        } else {
+            existing.formats.allFormats().any { existingFormat ->
+                newInfo.formats.allFormats().any { newFormat ->
+                    existingFormat.url == newFormat.url
+                }
+            }
+        }
+    }
+
+    override fun getDownloadBtnIcon(): ObservableInt {
+        return downloadButtonIcon
+    }
+
+    override fun checkRegularVideoOrAudio(
+        request: Request?, isCheckOnAudio: Boolean, isCheckOnVideo: Boolean
+    ): Disposable? {
+        if (request == null) {
+            return null
+        }
+
+        val uriString = request.url.toString()
+
+        if (!uriString.startsWith("http")) {
+            return null
+        }
+
+        val clearedUrl = uriString.split("?").first().trim()
+
+        if (clearedUrl.contains(filterRegex)) {
+            return null
+        }
+
+        val headers = try {
+            request.headers.toMap().toMutableMap()
+        } catch (_: Throwable) {
+            mutableMapOf()
+        }
+
+        val disposable = io.reactivex.rxjava3.core.Observable.create<Unit> {
+            if (request.url.toString().contains(".mp4")) {
+                setButtonState(DownloadButtonStateLoading())
+            }
+            regularLoadingList.get()?.add(request.url.toString())
+            regularLoadingList.notifyChange()
+            propagateCheckJob(uriString, headers, isCheckOnAudio, isCheckOnVideo)
+            it.onComplete()
+        }.subscribeOn(baseSchedulers.io).doOnComplete {
+            regularLoadingList.get()?.remove(request.url.toString())
+            regularLoadingList.notifyChange()
+        }.onErrorComplete().doOnError {
+            AppLogger.d("Checking ERROR... $clearedUrl")
+        }.subscribe()
+
+        return disposable
+    }
+
+    override fun cancelAllCheckJobs() {
+        try {
+            regularLoadingList.get()?.clear()
+            regularLoadingList.notifyChange()
+            m3u8LoadingList.get()?.clear()
+            m3u8LoadingList.notifyChange()
+            executorRegular.cancel()
+            
+            // Iterate over a snapshot of values to safely dispose
+            val jobs = verifyVideoLinkJobStorage.values.toMutableList()
+            verifyVideoLinkJobStorage.clear()
+            jobs.forEach { it.dispose() }
+        } catch (e: Throwable) {
+            e.printStackTrace()
+        }
+    }
+
+
+    @Synchronized
+    fun setButtonState(state: DownloadButtonState) {
+        when (state) {
+            is DownloadButtonStateCanDownload -> {
+                downloadButtonState.set(state)
+            }
+
+            is DownloadButtonStateCanNotDownload -> {
+                val detectedSize = detectedVideosList.get()?.size
+                if (detectedSize == null || detectedSize == 0) {
+                    downloadButtonState.set(DownloadButtonStateCanNotDownload())
+                } else {
+                    downloadButtonState.set(
+                        DownloadButtonStateCanDownload(
+                            detectedVideosList.get()?.first()
+                        )
+                    )
+                }
+            }
+
+            is DownloadButtonStateLoading -> {
+                val list = detectedVideosList.get() ?: emptySet()
+                if (list.isEmpty()) {
+                    downloadButtonState.set(DownloadButtonStateLoading())
+                } else {
+                    downloadButtonState.set(DownloadButtonStateCanDownload(list.first()))
+                }
+            }
+        }
+    }
+
+    private fun getRequestWithHeadersForUrl(
+        url: String,
+        originalUrl: String,
+        userAgent: String,
+        alternativeHeaders: Map<String, String> = emptyMap()
+    ): Request.Builder? {
+        try {
+            val cookies = try {
+                CookieManager.getInstance().getCookie(url) ?: CookieManager.getInstance()
+                    .getCookie(originalUrl) ?: ""
+            } catch (_: Throwable) {
+                ""
+            }
+            val stringBuilder = StringBuilder()
+            if (cookies.isNotEmpty()) {
+                for (cookie in cookies.split(";")) {
+                    val parsedCookies = HttpCookie.parse(cookie)
+
+                    for (httpCookie in parsedCookies) {
+                        stringBuilder.append("${httpCookie.name}=${httpCookie.value};")
+                    }
+                }
+            }
+
+            if (alternativeHeaders.isEmpty()) {
+                val builder = try {
+                    Request.Builder().url(url.trim())
+                } catch (_: Throwable) {
+                    null
+                }
+                builder?.addHeader("Referer", "https://${originalUrl.toUri().host}/")
+
+                builder?.addHeader("User-Agent", userAgent)
+
+                try {
+                    if (cookies.isNotEmpty()) {
+                        builder?.addHeader("Cookie", stringBuilder.toString())
+                    }
+                } catch (e: Throwable) {
+                    AppLogger.d("Url parse error ${e.message}")
+                }
+                return builder
+
+            } else {
+                val builder = try {
+                    Request.Builder().url(url.trim())
+                } catch (_: Throwable) {
+                    null
+                }
+                builder?.headers(alternativeHeaders.toHeaders())
+                if (cookies.isNotEmpty() && alternativeHeaders["Cookie"] == null) {
+                    builder?.addHeader("Cookie", stringBuilder.toString())
+                }
+
+                return builder
+            }
+        } catch (e: Throwable) {
+            e.printStackTrace()
+        }
+
+        return null
+    }
+
+    fun propagateCheckJob(
+        url: String,
+        headersMap: Map<String, String>,
+        isCheckOnAudio: Boolean,
+        isCheckOnVideo: Boolean
+    ) {
+        val threshold = settingsModel.videoDetectionTreshold.get()
+
+        val finalUrlPair = runCatching {
+            CookieUtils.getFinalRedirectURL(URL(url.toUri().toString()), headersMap)
+        }.getOrNull() ?: return
+
+        val cookies = runCatching {
+            CookieManager.getInstance().getCookie(finalUrlPair.first.toString())
+                ?: CookieManager.getInstance().getCookie(url) ?: ""
+        }.getOrNull() ?: ""
+
+        val headers = headersMap.toMutableMap().apply {
+            if (cookies.isNotEmpty()) {
+                put("Cookie", cookies)
+            }
+        }
+
+        runCatching {
+            val request =
+                Request.Builder().url(finalUrlPair.first).headers(headers.toHeaders()).build()
+
+            okHttpProxyClient.getProxyOkHttpClient().newCall(request).execute().use { response ->
+                val contentType = response.body.contentType().toString()
+                val contentLength = response.body.contentLength()
+
+                if (response.code == 403 || response.code == 401) {
+                    handleUnauthorizedResponse(url, threshold, isCheckOnAudio, isCheckOnVideo)
+                    return
+                }
+
+                val isTikTok = url.contains(".tiktok.com/")
+                val isRegularStreamDetectionOn = settingsModel.isForceStreamDetection.get()
+
+                val isVideo = contentType.contains("video", true)
+                val isAudio = contentType.contains("audio", true)
+
+                val tikTokThreshold = 1024 * 1024 / 3 // ~333KB
+                val isLargeEnoughForTikTok = isTikTok && contentLength > tikTokThreshold
+                val isAboveUserThreshold = contentLength > threshold
+                val isStreamDetectionOn = isRegularStreamDetectionOn
+
+                val isVideoContent =
+                    isVideo && isCheckOnVideo && (isAboveUserThreshold || isLargeEnoughForTikTok || isStreamDetectionOn)
+
+                val isAudioContent = isAudio && isCheckOnAudio
+
+                if (isVideoContent) {
+                    setMediaInfoWrapperFromUrl(
+                        finalUrlPair.first,
+                        webTabModel?.getTabTextInput()?.get(),
+                        finalUrlPair.second.toMap(),
+                        contentLength
+                    )
+                } else if (isAudioContent) {
+                    setMediaInfoWrapperFromUrl(
+                        finalUrlPair.first,
+                        webTabModel?.getTabTextInput()?.get(),
+                        finalUrlPair.second.toMap(),
+                        contentLength,
+                        isAudio = true
+                    )
+                }
+            }
+        }.onFailure { e ->
+            e.printStackTrace()
+        }
+    }
+
+    // THIS BULLSHIT NEEDED FOR SOME INDIAN WEB-SITES
+    private fun handleUnauthorizedResponse(
+        url: String, threshold: Int, isCheckOnAudio: Boolean, isCheckOnVideo: Boolean
+    ) {
+        val finalUrlPairEmpty = runCatching {
+            CookieUtils.getFinalRedirectURL(URL(url.toUri().toString()), emptyMap())
+        }.getOrNull() ?: return
+
+        runCatching {
+            val request = Request.Builder().url(finalUrlPairEmpty.first).build()
+            okHttpProxyClient.getProxyOkHttpClient().newCall(request).execute().use { response ->
+                val contentType = response.body.contentType().toString()
+                val contentLength = response.body.contentLength()
+
+                when {
+                    contentType.contains(
+                        "video", true
+                    ) && isCheckOnVideo && contentLength > threshold.toLong() -> {
+                        setMediaInfoWrapperFromUrl(
+                            finalUrlPairEmpty.first,
+                            webTabModel?.getTabTextInput()?.get(),
+                            finalUrlPairEmpty.second.toMap(),
+                            contentLength
+                        )
+                    }
+
+                    contentType.contains("audio", true) && isCheckOnAudio -> {
+                        setMediaInfoWrapperFromUrl(
+                            finalUrlPairEmpty.first,
+                            webTabModel?.getTabTextInput()?.get(),
+                            finalUrlPairEmpty.second.toMap(),
+                            contentLength,
+                            true
+                        )
+                    }
+                }
+            }
+        }
+    }
+
+    private fun setMediaInfoWrapperFromUrl(
+        url: URL,
+        originalUrl: String?,
+        alternativeHeaders: Map<String, String> = emptyMap(),
+        contentLength: Long,
+        isAudio: Boolean = false
+    ) {
+        try {
+            if (!url.toString().startsWith("http")) {
+                return
+            }
+
+            val builder = if (originalUrl != null) {
+                Request.Builder().url(url.toString()).headers(alternativeHeaders.toHeaders())
+            } else {
+                null
+            }
+
+            val downloadUrls = listOfNotNull(
+                builder?.build()
+            )
+
+            val video = VideoInfoWrapper(
+                VideoInfo(
+                    downloadUrls = downloadUrls,
+                    title = webTabModel?.currentTitle?.get() ?: "no_title",
+                    ext = if (isAudio) "mp3" else "mp4",
+                    originalUrl = webTabModel?.getTabTextInput()?.get() ?: "",
+                    // TODO format regular file link
+                    formats = VideFormatEntityList(
+                        mutableListOf(
+                            VideoFormatEntity(
+                                formatId = "0",
+                                format = if (isAudio) "audio" else ContextUtils.getApplicationContext()
+                                    .getString(R.string.player_resolution),
+                                ext = if (isAudio) "mp3" else "mp4",
+                                url = downloadUrls.first().url.toString(),
+                                httpHeaders = downloadUrls.first().headers.toMap(),
+                                fileSize = contentLength
+                            )
+                        )
+                    ),
+                    isRegularDownload = true
+                )
+            )
+            video.videoInfo?.let {
+                viewModelScope.launch(executorPusher) {
+                    pushNewVideoInfoToAll(it)
+                }
+            }
+        } catch (e: Throwable) {
+            e.printStackTrace()
+        }
+    }
+}

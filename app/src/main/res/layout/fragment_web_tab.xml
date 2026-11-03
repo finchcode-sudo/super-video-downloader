@@ -1,0 +1,282 @@
+<?xml version="1.0" encoding="utf-8"?>
+<layout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    xmlns:tools="http://schemas.android.com/tools"
+    tools:context=".ui.main.home.browser.webTab.WebTabFragment">
+
+    <data>
+
+        <import type="android.view.View" />
+
+        <import type="com.myAllVideoBrowser.R" />
+
+        <variable
+            name="viewModel"
+            type="com.myAllVideoBrowser.ui.main.home.browser.webTab.WebTabViewModel" />
+
+        <variable
+            name="videoTabVModel"
+            type="com.myAllVideoBrowser.ui.main.home.browser.detectedVideos.IVideoDetector" />
+
+        <variable
+            name="browserMenuListener"
+            type="com.myAllVideoBrowser.ui.main.home.browser.BrowserListener" />
+
+        <variable
+            name="settingsViewModel"
+            type="com.myAllVideoBrowser.ui.main.settings.SettingsViewModel" />
+    </data>
+
+    <FrameLayout
+        android:layout_width="match_parent"
+        android:layout_height="match_parent">
+
+        <FrameLayout
+            android:id="@+id/customView"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:visibility="gone"
+            android:importantForAccessibility="no" />
+
+        <androidx.coordinatorlayout.widget.CoordinatorLayout
+            android:id="@+id/containerBrowser"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent">
+
+            <com.google.android.material.appbar.AppBarLayout
+                android:id="@+id/app_bar"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:background="?attr/colorSurfaceContainer"
+                app:elevation="0dp">
+
+                <com.google.android.material.appbar.MaterialToolbar
+                    android:id="@+id/toolbar"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    app:contentInsetStart="0dp"
+                    app:layout_scrollFlags="scroll|enterAlways|snap">
+
+                    <androidx.constraintlayout.widget.ConstraintLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:paddingVertical="8dp">
+
+                        <LinearLayout
+                            android:id="@+id/buttons_block"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:gravity="center"
+                            android:orientation="horizontal"
+                            android:paddingStart="4dp"
+                            app:layout_constraintBottom_toBottomOf="parent"
+                            app:layout_constraintStart_toStartOf="parent"
+                            app:layout_constraintTop_toTopOf="parent">
+
+                            <com.google.android.material.button.MaterialButton
+                                android:id="@+id/iv_collapse_search"
+                                style="@style/Widget.Material3.Button.IconButton"
+                                android:layout_width="40dp"
+                                android:layout_height="40dp"
+                                android:contentDescription="@string/accessibility_back"
+                                android:onClick="@{() -> viewModel.changeTabFocus(false)}"
+                                android:visibility="@{viewModel.isTabInputFocused ? View.VISIBLE : View.GONE}"
+                                app:icon="@drawable/arrow_back24px"
+                                app:iconTint="?attr/colorOnSurface" />
+
+                            <com.google.android.material.button.MaterialButton
+                                android:id="@+id/iv_close_tab"
+                                style="@style/Widget.Material3.Button.IconButton"
+                                android:layout_width="40dp"
+                                android:layout_height="40dp"
+                                android:contentDescription="@string/accessibility_close"
+                                android:onClick="@{() -> browserMenuListener.onTabCloseClicked()}"
+                                android:visibility="@{viewModel.isTabInputFocused ? View.GONE : View.VISIBLE}"
+                                app:icon="@drawable/home_48px"
+                                app:iconTint="?attr/colorOnSurface" />
+
+                            <com.google.android.material.button.MaterialButton
+                                android:id="@+id/iv_go_back"
+                                style="@style/Widget.Material3.Button.IconButton"
+                                android:layout_width="40dp"
+                                android:layout_height="40dp"
+                                android:contentDescription="@string/accessibility_back"
+                                android:onClick="@{() -> browserMenuListener.onBrowserBackClicked()}"
+                                android:visibility="@{viewModel.isTabInputFocused ? View.GONE : View.VISIBLE}"
+                                app:icon="@drawable/arrow_back24px"
+                                app:iconTint="?attr/colorOnSurface" />
+
+                            <com.google.android.material.button.MaterialButton
+                                android:id="@+id/iv_go_forward"
+                                style="@style/Widget.Material3.Button.IconButton"
+                                android:layout_width="40dp"
+                                android:layout_height="40dp"
+                                android:contentDescription="@string/accessibility_forward"
+                                android:onClick="@{() -> browserMenuListener.onBrowserForwardClicked()}"
+                                android:visibility="@{viewModel.isTabInputFocused ? View.GONE : View.VISIBLE}"
+                                app:icon="@drawable/arrow_forward24px"
+                                app:iconTint="?attr/colorOnSurface" />
+                        </LinearLayout>
+
+                        <com.google.android.material.textfield.MaterialAutoCompleteTextView
+                            android:id="@+id/et_search"
+                            android:layout_width="0dp"
+                            android:layout_height="48dp"
+                            android:layout_marginHorizontal="8dp"
+                            android:background="@drawable/round_corner"
+                            android:focusable="@{viewModel.isTabInputFocused}"
+                            android:focusableInTouchMode="@{viewModel.isTabInputFocused}"
+                            android:hint="@string/browser_search_hint"
+                            android:onClick="@{() -> viewModel.changeTabFocus(true)}"
+                            android:paddingStart="16dp"
+                            android:paddingEnd="48dp"
+                            android:singleLine="true"
+                            android:text="@{viewModel.getTabTextInput()}"
+                            android:textColor="?attr/colorOnSurface"
+                            android:textColorHint="?attr/colorOnSurfaceVariant"
+                            android:textSize="@dimen/text_small"
+                            app:items="@{viewModel.listTabSuggestions}"
+                            app:layout_constraintBottom_toBottomOf="parent"
+                            app:layout_constraintEnd_toStartOf="@+id/browser_menu_button"
+                            app:layout_constraintStart_toEndOf="@+id/buttons_block"
+                            app:layout_constraintTop_toTopOf="parent"
+                            app:layout_goneMarginStart="8dp"
+                            app:layout_goneMarginEnd="8dp" />
+
+                        <com.google.android.material.button.MaterialButton
+                            android:id="@+id/iv_close_refresh"
+                            style="@style/Widget.Material3.Button.IconButton"
+                            android:layout_width="40dp"
+                            android:layout_height="40dp"
+                            android:layout_marginEnd="4dp"
+                            android:contentDescription="@{viewModel.isShowProgress() ? @string/accessibility_stop : @string/accessibility_refresh}"
+                            android:onClick="@{() -> viewModel.isShowProgress() ? browserMenuListener.onBrowserStopClicked() : browserMenuListener.onBrowserReloadClicked()}"
+                            android:visibility="@{viewModel.isTabInputFocused ? View.GONE : View.VISIBLE}"
+                            app:icon="@{viewModel.progressIcon}"
+                            app:iconTint="?attr/colorOnSurfaceVariant"
+                            app:layout_constraintBottom_toBottomOf="@+id/et_search"
+                            app:layout_constraintEnd_toEndOf="@+id/et_search"
+                            app:layout_constraintTop_toTopOf="@+id/et_search" />
+
+                        <com.google.android.material.button.MaterialButton
+                            android:id="@+id/iv_clear_search"
+                            style="@style/Widget.Material3.Button.IconButton"
+                            android:layout_width="40dp"
+                            android:layout_height="40dp"
+                            android:layout_marginEnd="4dp"
+                            android:contentDescription="@string/all_text_cancel"
+                            android:visibility="gone"
+                            app:icon="@drawable/close_24px"
+                            app:iconTint="?attr/colorOnSurfaceVariant"
+                            app:layout_constraintBottom_toBottomOf="@+id/et_search"
+                            app:layout_constraintEnd_toEndOf="@+id/et_search"
+                            app:layout_constraintTop_toTopOf="@+id/et_search" />
+
+                        <com.google.android.material.button.MaterialButton
+                            android:id="@+id/browser_menu_button"
+                            style="@style/Widget.Material3.Button.IconButton"
+                            android:layout_width="40dp"
+                            android:layout_height="40dp"
+                            android:layout_marginEnd="4dp"
+                            android:contentDescription="@string/menu"
+                            android:onClick="@{() -> browserMenuListener.onBrowserMenuClicked()}"
+                            android:visibility="@{viewModel.isTabInputFocused ? View.GONE : View.VISIBLE}"
+                            app:icon="@drawable/ic_more_24dp"
+                            app:iconTint="?attr/colorOnSurface"
+                            app:layout_constraintBottom_toBottomOf="parent"
+                            app:layout_constraintEnd_toEndOf="parent"
+                            app:layout_constraintTop_toTopOf="parent" />
+
+                    </androidx.constraintlayout.widget.ConstraintLayout>
+                </com.google.android.material.appbar.MaterialToolbar>
+
+                <ProgressBar
+                    android:id="@+id/progressBar"
+                    style="?android:attr/progressBarStyleHorizontal"
+                    android:layout_width="match_parent"
+                    android:layout_height="3dp"
+                    android:progress="@{viewModel.progress}"
+                    android:importantForAccessibility="no"
+                    android:progressTint="?attr/colorPrimary"
+                    android:visibility="@{viewModel.isShowProgress ? View.VISIBLE : View.GONE}" />
+
+            </com.google.android.material.appbar.AppBarLayout>
+
+            <androidx.constraintlayout.widget.ConstraintLayout
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
+                app:layout_behavior="@string/appbar_scrolling_view_behavior">
+
+                <FrameLayout
+                    android:id="@+id/webview_container"
+                    android:layout_width="match_parent"
+                    android:layout_height="match_parent"
+                    android:layout_marginBottom="@dimen/home_bottom_bar_size" />
+
+                <FrameLayout
+                    android:layout_width="4dp"
+                    android:layout_margin="1dp"
+                    android:layout_height="match_parent"
+                    android:importantForAccessibility="no"
+                    android:visibility="@{(videoTabVModel.hasCheckLoadingsM3u8() || videoTabVModel.hasCheckLoadingsRegular()) ? View.VISIBLE : View.GONE }"
+                    app:layout_constraintBottom_toBottomOf="parent"
+                    app:layout_constraintEnd_toEndOf="parent"
+                    app:layout_constraintTop_toTopOf="parent">
+
+                    <ProgressBar
+                        style="@android:style/Widget.ProgressBar.Horizontal"
+                        android:layout_width="700dp"
+                        android:layout_height="match_parent"
+                        android:indeterminate="true"
+                        android:importantForAccessibility="no"
+                        android:indeterminateDrawable="@drawable/progress_load_data"
+                        android:rotation="90" />
+                </FrameLayout>
+
+                <FrameLayout
+                    android:id="@+id/fullscreen_container"
+                    android:layout_width="match_parent"
+                    android:layout_height="match_parent"
+                    android:visibility="gone"
+                    android:importantForAccessibility="no" />
+
+            </androidx.constraintlayout.widget.ConstraintLayout>
+
+            <com.myAllVideoBrowser.ui.component.widget.MovableContainer
+                android:id="@+id/floating_container"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_gravity="bottom|end"
+                android:layout_margin="16dp"
+                android:background="@drawable/rounded_bg"
+                android:outlineProvider="background"
+                android:visibility="@{settingsViewModel.getVideoButtonState() ? View.VISIBLE : View.GONE}">
+
+                <com.google.android.material.floatingactionbutton.FloatingActionButton
+                    android:id="@+id/fab"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_margin="24dp"
+                    android:contentDescription="@string/open_download_dialog_or_restart"
+                    android:onClick="@{() -> videoTabVModel.showVideoInfo()}"
+                    app:shapeAppearanceOverlay="@style/ShapeAppearanceOverlay.Rounded"
+                    app:srcCompat="@{videoTabVModel.getDownloadBtnIcon()}" />
+
+                <com.google.android.material.imageview.ShapeableImageView
+                    android:id="@+id/loadingWavy"
+                    android:layout_width="56dp"
+                    android:layout_height="56dp"
+                    android:contentDescription="@string/loading_image_view"
+                    android:translationZ="12dp"
+                    android:visibility="@{videoTabVModel.getDownloadBtnIcon() == R.drawable.invisible_24px ? View.VISIBLE : View.GONE}"
+                    app:layout_constraintBottom_toBottomOf="@id/fab"
+                    app:layout_constraintEnd_toEndOf="@id/fab"
+                    app:layout_constraintStart_toStartOf="@id/fab"
+                    app:layout_constraintTop_toTopOf="@id/fab"
+                    app:shapeAppearanceOverlay="@style/ShapeAppearanceOverlay.Rounded" />
+            </com.myAllVideoBrowser.ui.component.widget.MovableContainer>
+
+        </androidx.coordinatorlayout.widget.CoordinatorLayout>
+    </FrameLayout>
+
+</layout>
